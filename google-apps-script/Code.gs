@@ -1,5 +1,5 @@
 /**
- * Stok Opname — API Google Sheet untuk halaman GitHub Pages.
+ * Stok Opname: API Google Sheet untuk halaman GitHub Pages.
  *
  * Deploy sebagai Web App: Deploy > New deployment > Web app.
  *   Execute as: Me

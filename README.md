@@ -1,4 +1,4 @@
-# Stok Opname Gudang — GitHub Pages + Google Sheet
+# Stok Opname Gudang: GitHub Pages + Google Sheet
 
 Web app stok opname untuk beberapa device sekaligus (HP, tablet, laptop dengan
 scanner). Setiap device menghitung barang, hitungannya ditandai nama device,
@@ -65,12 +65,12 @@ berlaku, dan hitungan yang sudah ada tetap aman.
 
 ---
 
-## Langkah 1 — Buat Google Sheet
+## Langkah 1: Buat Google Sheet
 
 1. Buat Spreadsheet baru di Google Drive, beri nama mis. `Stok Opname Gudang`.
 2. Tab tidak perlu dibuat manual. Skrip akan membuatnya di Langkah 2.
 
-## Langkah 2 — Pasang Apps Script
+## Langkah 2: Pasang Apps Script
 
 1. Di Sheet, buka **Extensions > Apps Script**.
 2. Hapus isi `Code.gs` bawaan, lalu tempel isi file
@@ -92,7 +92,7 @@ berlaku, dan hitungan yang sudah ada tetap aman.
 | `nama_gudang` | tampil di atas halaman, mis. `Gudang Timika` |
 | `master_versi`, `master_file`, `master_diimport` | diisi otomatis, jangan diubah |
 
-## Langkah 3 — Deploy sebagai Web App
+## Langkah 3: Deploy sebagai Web App
 
 1. Klik **Deploy > New deployment**.
 2. Klik ikon gerigi di sebelah "Select type", pilih **Web app**.
@@ -103,7 +103,7 @@ Kalau nanti `Code.gs` diubah, pakai **Deploy > Manage deployments > pensil
 edit > Version: New version > Deploy**. Jangan `New deployment` lagi, karena
 itu membuat URL baru.
 
-## Langkah 4 — Isi URL di `assets/config.js`
+## Langkah 4: Isi URL di `assets/config.js`
 
 Buka `assets/config.js`, ganti `PASTE_URL_WEB_APP_DI_SINI` dengan URL dari
 Langkah 3:
@@ -114,7 +114,7 @@ window.APP_CONFIG = {
 };
 ```
 
-## Langkah 5 — Upload ke GitHub
+## Langkah 5: Upload ke GitHub
 
 1. Buat repo baru di GitHub: **+ > New repository**, beri nama mis.
    `stok-opname`, pilih **Public**, jangan centang "Add a README". Klik
@@ -139,21 +139,21 @@ git remote add origin https://github.com/<akun-anda>/stok-opname.git
 git push -u origin main
 ```
 
-## Langkah 6 — Nyalakan GitHub Pages
+## Langkah 6: Nyalakan GitHub Pages
 
 1. Di repo, buka **Settings > Pages**.
 2. **Source**: `Deploy from a branch`. **Branch**: `main`, folder `/ (root)`. Klik **Save**.
-3. Tunggu 1–2 menit. URL muncul di halaman yang sama:
+3. Tunggu 1-2 menit. URL muncul di halaman yang sama:
    `https://<akun-anda>.github.io/stok-opname/`.
 
-## Langkah 7 — Cara pakai di gudang
+## Langkah 7: Cara pakai di gudang
 
 1. **Admin (sekali per opname):**
    - Buka link, masukkan kode akses.
    - Tab **Stok DMS**: klik **Pilih file Excel / CSV**, pilih ekspor stok DMS,
      cek pratinjau, klik **Simpan ke Google Sheet**. Klik **Unduh template**
      untuk melihat format kolom.
-   - Tab **Sesi**: buat sesi, mis. `Opname Gudang A — Sep 2026`.
+   - Tab **Sesi**: buat sesi, mis. `Opname Gudang A, Sep 2026`.
 2. **Setiap penghitung (per device):**
    - Buka **link penghitung** yang dibagikan admin. Tidak perlu kode.
    - Tab **Sesi**: isi **Nama device**, mis. `HP-01 Rak A`, klik **Simpan**.
@@ -186,20 +186,20 @@ lusin/pcs).
 
 ## Masalah yang mungkin muncul
 
-- **"APPS_SCRIPT_URL belum diisi"** — Langkah 4 belum dilakukan atau file
+- **"APPS_SCRIPT_URL belum diisi"**: Langkah 4 belum dilakukan atau file
   `config.js` di GitHub belum diperbarui.
-- **"Kode akses salah"** — cek `Config!kode_akses`. Huruf besar/kecil dan spasi berpengaruh.
-- **"Tidak bisa terhubung ke Apps Script"** — cek URL diakhiri `/exec` dan
+- **"Kode akses salah"**: cek `Config!kode_akses`. Huruf besar/kecil dan spasi berpengaruh.
+- **"Tidak bisa terhubung ke Apps Script"**: cek URL diakhiri `/exec` dan
   deployment masih aktif.
-- **Indikator merah "Offline · N menunggu"** — normal saat tidak ada sinyal.
+- **Indikator merah "Offline · N menunggu"**: normal saat tidak ada sinyal.
   Hitungan aman di device dan terkirim otomatis saat online. Jangan hapus data
   browser atau pakai mode incognito selama masih ada yang menunggu.
-- **Kamera tidak mau terbuka** — izinkan akses kamera untuk situs ini di
+- **Kamera tidak mau terbuka**: izinkan akses kamera untuk situs ini di
   pengaturan browser. Kamera hanya bekerja di alamat `https://` (GitHub Pages
   sudah https).
-- **Nama barang tidak muncul saat scan** — barcode belum ada di data DMS.
+- **Nama barang tidak muncul saat scan**: barcode belum ada di data DMS.
   Scan tetap tercatat dan muncul sebagai "Di luar DMS" di Rekap.
-- **Data DMS diubah langsung di Sheet** — halaman mengambil ulang otomatis
+- **Data DMS diubah langsung di Sheet**: halaman mengambil ulang otomatis
   saat dibuka. Bisa juga klik **Ambil ulang dari Sheet** di tab Stok DMS.
 
 ## Batas yang perlu diketahui

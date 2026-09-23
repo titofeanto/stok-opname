@@ -20,7 +20,7 @@ const LS = {
   del(k){ try { localStorage.removeItem(k); } catch(e){} },
   json(k){ try { const v = localStorage.getItem(k); return v ? JSON.parse(v) : null; } catch(e){ return null; } },
   put(k, o){
-    if (!LS.set(k, JSON.stringify(o))) showBanner('Memori browser penuh. Hitungan terbaru mungkin tidak tersimpan di device ini — pastikan online supaya terkirim.');
+    if (!LS.set(k, JSON.stringify(o))) showBanner('Memori browser penuh. Hitungan terbaru mungkin tidak tersimpan di device ini. Sambungkan ke internet supaya hitungan terkirim ke Sheet.');
   },
   keys(prefix){ const out = []; try { for (let i = 0; i < localStorage.length; i++) { const k = localStorage.key(i); if (k && k.startsWith(prefix)) out.push(k); } } catch(e){} return out; }
 };
@@ -36,9 +36,9 @@ function fmtKLP(o){
   return parts.length ? parts.join(' · ') : '0';
 }
 function fmtTime(iso){ if (!iso) return ''; return new Date(iso).toLocaleTimeString('id-ID', {hour:'2-digit', minute:'2-digit'}); }
-function fmtDate(iso){ if (!iso) return '—'; const d = new Date(iso); if (isNaN(d)) return String(iso); return d.toLocaleString('id-ID', {day:'numeric', month:'short', year:'numeric', hour:'2-digit', minute:'2-digit'}); }
+function fmtDate(iso){ if (!iso) return '-'; const d = new Date(iso); if (isNaN(d)) return String(iso); return d.toLocaleString('id-ID', {day:'numeric', month:'short', year:'numeric', hour:'2-digit', minute:'2-digit'}); }
 function ago(iso){
-  if (!iso) return '—'; const s = (Date.now() - new Date(iso).getTime()) / 1000;
+  if (!iso) return '-'; const s = (Date.now() - new Date(iso).getTime()) / 1000;
   if (s < 60) return 'baru saja'; if (s < 3600) return Math.floor(s/60) + ' mnt lalu';
   if (s < 86400) return Math.floor(s/3600) + ' jam lalu'; return fmtDate(iso);
 }
@@ -358,7 +358,7 @@ function openCard(prod, code, unitHint){
   $('#pcName').innerHTML = prod ? esc(prod.n) : '<span class="unknown-tag">Tidak ada di DMS</span>';
   $('#pcMeta').textContent = prod ? (prod.k > 0 ? '1 karton = ' + fmt(prod.k) + ' pcs' : 'Isi karton belum diisi di DMS') : 'Karton tidak bisa dihitung tanpa isi karton';
   const isi = prod ? prod.k : 0;
-  $('#qK').disabled = !(isi > 0); $('#qKh').textContent = isi > 0 ? fmt(isi) + ' pcs' : '—';
+  $('#qK').disabled = !(isi > 0); $('#qKh').textContent = isi > 0 ? fmt(isi) + ' pcs' : 'isi belum ada';
   ['#qK', '#qL', '#qP'].forEach(s => $(s).value = '');
   const it = S.local && S.local.items[S.current.code];
   $('#pcMine').textContent = it ? 'Sudah dihitung device ini: ' + fmtKLP(it) + ' (' + fmt(toPcs(it, isi)) + ' pcs)' : '';
@@ -451,7 +451,7 @@ function renderHitung(){
   $('#hitungNotice').innerHTML = html;
   const ok = canCount();
   ['#scanInput', '#scanBtn', '#camBtn'].forEach(x => $(x).disabled = !ok);
-  $('#scanInput').placeholder = ok ? 'Scan / ketik SKU…' : 'Belum bisa scan';
+  $('#scanInput').placeholder = ok ? 'Barcode / SKU' : 'Belum bisa scan';
   $('#quickOn').checked = S.quickOn;
   $('#quickUnit').classList.toggle('off', !S.quickOn);
   document.querySelectorAll('#quickUnit button').forEach(b => b.setAttribute('aria-pressed', String(b.dataset.u === S.quickUnit)));
@@ -464,7 +464,7 @@ function renderHitungLists(){
   $('#logList').innerHTML = log.length ? log.slice(0, 12).map((e, i) => {
     const p = productFor(e.sku);
     return `<li><span class="t">${esc(fmtTime(e.at))}</span><span class="d"><div class="mono">${esc(e.sku)}</div><div>${esc(p ? p.n : '(tidak ada di DMS)')}</div></span><span class="qv">+${esc(fmtKLP(e))}</span>${i < 5 && canCount() ? `<button class="btn sm" type="button" data-undo="${esc(e.id)}">Batal</button>` : ''}</li>`;
-  }).join('') : '<li class="empty">Belum ada scan di sesi ini.</li>';
+  }).join('') : '<li class="empty">Belum ada scan. Scan barcode atau ketik SKU di kolom atas untuk mulai.</li>';
 
   const entries = Object.entries(local.items).sort((a, b) => String(b[1].at || '').localeCompare(String(a[1].at || '')));
   let totalPcs = 0;
@@ -485,7 +485,7 @@ function renderHitungLists(){
       <div><div class="nm">${esc(p ? p.n : '(tidak ada di DMS)')}${pend}</div><div class="sk mono">${esc(sku)}</div></div>
       <div class="qv num">${esc(fmtKLP(it))}<small>${fmt(t)} pcs</small></div>${extra}</div>`;
   });
-  $('#myList').innerHTML = rows.length ? rows.join('') : '<div class="empty">Belum ada barang yang dihitung device ini.</div>';
+  $('#myList').innerHTML = rows.length ? rows.join('') : '<div class="empty">Belum ada barang yang dihitung dari device ini. Setiap barang yang Anda tambahkan muncul di sini dan bisa dikoreksi.</div>';
   $('#myCount').textContent = entries.length ? entries.length + ' SKU · ' + fmt(totalPcs) + ' pcs' : '';
 }
 
@@ -535,7 +535,7 @@ function renderRekap(){
   rows.forEach(r => { c[r.status]++; if (r.status === 'kurang') minus += r.diff; if (r.status === 'lebih') plus += r.diff; });
   const dmsN = S.master.items.length; const counted = rows.filter(r => r.has && r.inDms).length;
   const pct = dmsN ? Math.round(counted / dmsN * 100) : 0;
-  $('#rkUpdated').textContent = S.remoteAt ? 'Data semua device per ' + fmtTime(S.remoteAt) + (S.online ? '' : ' · offline') : (S.online ? 'Memuat…' : 'Offline — hanya data device ini');
+  $('#rkUpdated').textContent = S.remoteAt ? 'Data semua device per ' + fmtTime(S.remoteAt) + (S.online ? '' : ' · offline') : (S.online ? 'Memuat…' : 'Offline. Hanya data device ini yang tampil.');
   $('#tiles').innerHTML = `
     <div class="tile"><div class="k">Progres</div><div class="v">${pct}%</div><div class="s">${fmt(counted)} dari ${fmt(dmsN)} SKU DMS</div></div>
     <div class="tile good"><div class="k">Sesuai</div><div class="v">${fmt(c.sesuai)}</div><div class="s">SKU cocok dengan DMS</div></div>
@@ -549,7 +549,7 @@ function renderRekap(){
     const active = d.updatedAt && (Date.now() - new Date(d.updatedAt).getTime() < 10 * 60 * 1000);
     return `<div class="dev"><div class="n"><i class="${active ? '' : 'idle'}"></i>${esc(d.name || 'Tanpa nama')} ${d.mine ? '<span class="you">device ini</span>' : ''}</div>
       <div class="m">${fmt(items.length)} SKU · ${fmt(t)} pcs</div><div class="m">Update ${esc(ago(d.updatedAt))}</div></div>`;
-  }).join('') : '<div class="empty">Belum ada device yang menghitung di sesi ini.</div>';
+  }).join('') : '<div class="empty">Belum ada device yang menghitung di sesi ini. Salin link penghitung di tab Sesi dan bagikan ke tim gudang.</div>';
 
   const f = S.rkFilter; const q = norm(S.rkSearch);
   let list = rows.filter(r => f === 'semua' ? true : f === 'selisih' ? (r.status === 'kurang' || r.status === 'lebih') : r.status === f);
@@ -562,13 +562,13 @@ function renderRekap(){
   $('#rkTable').innerHTML = `<thead><tr><th>SKU</th><th>Nama barang</th>${devs.map(d => `<th class="r">${esc(d.name)}</th>`).join('')}<th class="r">Total hitung</th><th class="r">Stok DMS</th><th class="r">Selisih</th><th>Status</th></tr></thead>
     <tbody>${shown.length ? shown.map(r => `<tr>
       <td class="mono">${esc(r.sku)}</td>
-      <td class="nm">${esc(r.name)}<span class="sub">${r.isi ? 'Isi ' + fmt(r.isi) + ' pcs/karton' : 'Isi karton —'}</span></td>
-      ${devs.map(d => `<td class="r">${r.per[d.id] != null ? fmt(r.per[d.id]) : '<span class="sub">—</span>'}</td>`).join('')}
+      <td class="nm">${esc(r.name)}<span class="sub">${r.isi ? 'Isi ' + fmt(r.isi) + ' pcs/karton' : 'Isi karton belum ada'}</span></td>
+      ${devs.map(d => `<td class="r">${r.per[d.id] != null ? fmt(r.per[d.id]) : '<span class="sub">-</span>'}</td>`).join('')}
       <td class="r"><b>${fmt(r.counted)}</b><span class="sub">${esc(fmtKLP(klp(r.counted, r.isi)))}</span></td>
-      <td class="r">${r.inDms ? fmt(r.dms) + `<span class="sub">${esc(fmtKLP(klp(r.dms, r.isi)))}</span>` : '<span class="sub">—</span>'}</td>
+      <td class="r">${r.inDms ? fmt(r.dms) + `<span class="sub">${esc(fmtKLP(klp(r.dms, r.isi)))}</span>` : '<span class="sub">-</span>'}</td>
       <td class="r ${r.diff < 0 ? 'neg' : r.diff > 0 ? 'pos' : ''}">${r.diff > 0 ? '+' : ''}${fmt(r.diff)}${r.diff ? `<span class="sub">${r.diff < 0 ? '−' : '+'}${esc(fmtKLP(klp(r.diff, r.isi)))}</span>` : ''}</td>
       <td><span class="pill ${r.status}">${STATUS_LABEL[r.status]}</span></td></tr>`).join('')
-      : `<tr><td colspan="${6 + devs.length}" class="empty">Tidak ada barang untuk filter ini.</td></tr>`}</tbody>`;
+      : `<tr><td colspan="${6 + devs.length}" class="empty">Tidak ada barang dengan status ini. Pilih filter lain atau kosongkan pencarian.</td></tr>`}</tbody>`;
   $('#rkMore').hidden = list.length <= S.rkLimit;
   $('#rkMore').textContent = 'Tampilkan lebih banyak (' + fmt(list.length - S.rkLimit) + ' lagi)';
 }
@@ -700,8 +700,8 @@ function renderDms(){
   $('#dmsCnt').textContent = fmt(S.master.items.length) + ' SKU';
   const shown = list.slice(0, S.dmsLimit);
   $('#dmsTable').innerHTML = `<thead><tr><th>SKU</th><th>Barcode</th><th>Nama barang</th><th class="r">Isi karton</th><th class="r">Stok (pcs)</th><th class="r">Karton · Lusin · Pcs</th></tr></thead><tbody>${
-    shown.length ? shown.map(p => `<tr><td class="mono">${esc(p.s)}</td><td class="mono">${esc(p.b || '—')}${p.bk ? `<span class="sub">ctn ${esc(p.bk)}</span>` : ''}</td><td class="nm">${esc(p.n)}</td><td class="r">${p.k ? fmt(p.k) : '—'}</td><td class="r">${fmt(p.q)}</td><td class="r">${esc(fmtKLP(klp(p.q, p.k)))}</td></tr>`).join('')
-    : `<tr><td colspan="6" class="empty">${S.master.items.length ? 'Tidak ada yang cocok.' : 'Import file dari DMS untuk mulai.'}</td></tr>`}</tbody>`;
+    shown.length ? shown.map(p => `<tr><td class="mono">${esc(p.s)}</td><td class="mono">${esc(p.b || '-')}${p.bk ? `<span class="sub">ctn ${esc(p.bk)}</span>` : ''}</td><td class="nm">${esc(p.n)}</td><td class="r">${p.k ? fmt(p.k) : '-'}</td><td class="r">${fmt(p.q)}</td><td class="r">${esc(fmtKLP(klp(p.q, p.k)))}</td></tr>`).join('')
+    : `<tr><td colspan="6" class="empty">${S.master.items.length ? 'Tidak ada barang yang cocok dengan pencarian.' : 'Import file dari DMS untuk mulai.'}</td></tr>`}</tbody>`;
   $('#dmsMore').hidden = list.length <= S.dmsLimit;
 }
 
@@ -720,7 +720,7 @@ function renderSesi(){
       </div>
       ${S.confirmSess === s.id ? `<div class="confirm"><span>Hapus sesi "${esc(s.name)}" beserta hitungan semua device di Google Sheet? Tidak bisa dibatalkan.</span><button class="btn sm danger" type="button" data-sdelyes="${esc(s.id)}">Ya, hapus</button><button class="btn sm" type="button" data-scancel="1">Batal</button></div>` : ''}
     </div>`;
-  }).join('') : `<div class="empty">${MODE === 'hitung' ? 'Belum ada sesi yang berjalan. Minta admin membuat sesi.' : 'Belum ada sesi.'}</div>`;
+  }).join('') : `<div class="empty">${MODE === 'hitung' ? 'Belum ada sesi yang berjalan. Minta admin membuat sesi.' : 'Belum ada sesi. Buat sesi di atas, lalu bagikan link penghitung.'}</div>`;
   renderCounterLink();
 }
 function counterUrl(){ return new URL('hitung.html?k=' + encodeURIComponent(S.kodeHitung), location.href).toString(); }

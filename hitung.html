@@ -10,7 +10,7 @@
 <link rel="preconnect" href="https://fonts.googleapis.com">
 <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
 <link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Barlow+Condensed:wght@600;700&family=IBM+Plex+Mono:wght@500&family=IBM+Plex+Sans:wght@400;500;600&display=swap">
-<link rel="stylesheet" href="assets/style.css?v=2">
+<link rel="stylesheet" href="assets/style.css?v=4">
 </head>
 <body data-mode="hitung">
 
@@ -51,7 +51,7 @@
       <div class="panel">
         <label class="lbl" for="scanInput">Scan barcode atau ketik SKU</label>
         <div class="scanrow">
-          <input type="text" id="scanInput" autocomplete="off" autocapitalize="characters" spellcheck="false" enterkeyhint="search" placeholder="Scan / ketik SKU…">
+          <input type="text" id="scanInput" autocomplete="off" autocapitalize="characters" spellcheck="false" enterkeyhint="search" placeholder="Barcode / SKU">
           <button class="btn" id="camBtn" type="button" aria-label="Scan pakai kamera">Kamera</button>
           <button class="btn" id="scanBtn" type="button">Cari</button>
         </div>
@@ -77,7 +77,7 @@
           <button class="x" id="pcClose" type="button" aria-label="Tutup">×</button>
         </div>
         <div class="qty">
-          <div class="q"><label for="qK">Karton</label><input type="number" id="qK" inputmode="numeric" min="0" placeholder="0"><small id="qKh">—</small></div>
+          <div class="q"><label for="qK">Karton</label><input type="number" id="qK" inputmode="numeric" min="0" placeholder="0"><small id="qKh">isi belum ada</small></div>
           <div class="q"><label for="qL">Lusin</label><input type="number" id="qL" inputmode="numeric" min="0" placeholder="0"><small>12 pcs</small></div>
           <div class="q"><label for="qP">Pcs</label><input type="number" id="qP" inputmode="numeric" min="0" placeholder="0"><small>satuan</small></div>
         </div>
@@ -132,7 +132,7 @@
 
 <div class="toast" id="toast" hidden></div>
 
-<script src="assets/config.js?v=2"></script>
-<script src="assets/app.js?v=2"></script>
+<script src="assets/config.js?v=4"></script>
+<script src="assets/app.js?v=4"></script>
 </body>
 </html>
