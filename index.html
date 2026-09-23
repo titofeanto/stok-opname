@@ -1,0 +1,198 @@
+<!DOCTYPE html>
+<html lang="id">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+<meta name="color-scheme" content="light dark">
+<meta name="theme-color" content="#1A1F1C">
+<title>Stok Opname Gudang</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Barlow+Condensed:wght@600;700&family=IBM+Plex+Mono:wght@500&family=IBM+Plex+Sans:wght@400;500;600&display=swap">
+<link rel="stylesheet" href="assets/style.css?v=1">
+</head>
+<body>
+
+<!-- LOGIN -->
+<div class="login-wrap" id="loginScreen">
+  <form class="login-box" id="loginForm" autocomplete="off">
+    <span class="mark big" aria-hidden="true">SO</span>
+    <h1>Stok Opname</h1>
+    <p>Hitung stok gudang dari beberapa device sekaligus. Semua hitungan dijumlahkan dan dibandingkan dengan stok DMS di Google Sheet.</p>
+    <label class="lbl" for="codeInput">Kode akses tim</label>
+    <input type="text" id="codeInput" autocomplete="off" autocapitalize="characters" placeholder="mis. GUDANG-2026">
+    <button type="submit" class="btn primary wide" id="loginBtn">Masuk</button>
+    <div class="err" id="loginErr" role="alert"></div>
+  </form>
+</div>
+
+<!-- APP -->
+<div id="appScreen" hidden>
+  <header class="top">
+    <div class="brand">
+      <span class="mark" aria-hidden="true">SO</span>
+      <div><div class="brand-t" id="brandT">Stok Opname</div><div class="brand-s" id="hdrSession">Memuat…</div></div>
+    </div>
+    <span class="sync" id="sync"></span>
+    <button class="devchip" id="devChip" type="button">Atur nama device</button>
+  </header>
+  <div class="banner" id="banner" hidden></div>
+
+  <nav class="tabs" id="tabs" role="tablist">
+    <button role="tab" data-tab="hitung" aria-selected="true">Hitung</button>
+    <button role="tab" data-tab="rekap" aria-selected="false">Rekap</button>
+    <button role="tab" data-tab="dms" aria-selected="false">Stok DMS</button>
+    <button role="tab" data-tab="sesi" aria-selected="false">Sesi</button>
+  </nav>
+
+  <main>
+    <!-- HITUNG -->
+    <section class="tab" id="tab-hitung">
+      <div id="hitungNotice"></div>
+      <div class="panel">
+        <label class="lbl" for="scanInput">Scan barcode atau ketik SKU</label>
+        <div class="scanrow">
+          <input type="text" id="scanInput" autocomplete="off" autocapitalize="characters" spellcheck="false" enterkeyhint="search" placeholder="Scan / ketik SKU…">
+          <button class="btn" id="camBtn" type="button" aria-label="Scan pakai kamera">Kamera</button>
+          <button class="btn" id="scanBtn" type="button">Cari</button>
+        </div>
+        <div class="quick">
+          <label class="switch"><input type="checkbox" id="quickOn"> <span>Scan langsung tambah</span></label>
+          <div class="seg off" id="quickUnit" role="group" aria-label="Satuan scan cepat">
+            <button type="button" data-u="p" aria-pressed="true">+1 Pcs</button>
+            <button type="button" data-u="l" aria-pressed="false">+1 Lusin</button>
+            <button type="button" data-u="k" aria-pressed="false">+1 Karton</button>
+          </div>
+        </div>
+        <div class="suggest" id="suggest" hidden></div>
+        <div class="scanmsg" id="scanMsg" hidden></div>
+      </div>
+
+      <div class="panel prod" id="prodCard" hidden>
+        <div class="prod-h">
+          <div>
+            <div class="mono" id="pcSku"></div>
+            <div class="prod-n" id="pcName"></div>
+            <div class="prod-m" id="pcMeta"></div>
+          </div>
+          <button class="x" id="pcClose" type="button" aria-label="Tutup">×</button>
+        </div>
+        <div class="qty">
+          <div class="q"><label for="qK">Karton</label><input type="number" id="qK" inputmode="numeric" min="0" placeholder="0"><small id="qKh">—</small></div>
+          <div class="q"><label for="qL">Lusin</label><input type="number" id="qL" inputmode="numeric" min="0" placeholder="0"><small>12 pcs</small></div>
+          <div class="q"><label for="qP">Pcs</label><input type="number" id="qP" inputmode="numeric" min="0" placeholder="0"><small>satuan</small></div>
+        </div>
+        <div class="prod-f">
+          <span class="preview" id="pcPreview"></span>
+          <button class="btn primary" id="addBtn" type="button">Tambah hitungan</button>
+        </div>
+        <div class="prod-mine" id="pcMine"></div>
+      </div>
+
+      <div class="grid2">
+        <div class="panel">
+          <h3>Scan terakhir <span class="cnt">device ini</span></h3>
+          <ol class="log" id="logList"></ol>
+        </div>
+        <div class="panel">
+          <h3>Hitungan device ini <span class="cnt" id="myCount"></span></h3>
+          <div class="mylist" id="myList"></div>
+        </div>
+      </div>
+    </section>
+
+    <!-- REKAP -->
+    <section class="tab" id="tab-rekap" hidden>
+      <div class="rk-head">
+        <span class="hint" id="rkUpdated"></span>
+        <button class="btn sm" id="rkRefresh" type="button">Muat ulang</button>
+      </div>
+      <div class="tiles" id="tiles"></div>
+      <div class="panel">
+        <h3>Device penghitung <span class="cnt" id="devCnt"></span></h3>
+        <div class="devs" id="devList"></div>
+      </div>
+      <div class="panel">
+        <h3>Hasil vs stok DMS</h3>
+        <div class="rk-tools">
+          <div class="seg" id="rkFilter" role="group" aria-label="Filter status"></div>
+          <input type="search" id="rkSearch" placeholder="Cari SKU / nama barang">
+          <button class="btn" id="exportBtn" type="button">Export Excel</button>
+        </div>
+        <div class="tablewrap"><table id="rkTable"></table></div>
+        <button class="btn more" id="rkMore" type="button" hidden>Tampilkan lebih banyak</button>
+        <p class="hint">Total hitung = jumlah semua device. Karton dihitung pakai isi karton dari data DMS, lusin = 12 pcs. Rekap dimuat ulang otomatis tiap 20 detik.</p>
+      </div>
+    </section>
+
+    <!-- DMS -->
+    <section class="tab" id="tab-dms" hidden>
+      <div class="panel">
+        <h3>Stok terakhir dari DMS</h3>
+        <div id="dmsMeta" class="hint"></div>
+        <p class="hint">Unggah ekspor stok DMS (Excel atau CSV), atau tempel langsung di tab <span class="mono">Master_DMS</span> di Google Sheet. Kolom yang dibaca: <span class="mono">sku, barcode, barcode_karton, nama, isi_karton, stok</span>. Kolom <span class="mono">stok</span> dalam pcs. Bisa juga pakai kolom <span class="mono">karton, lusin, pcs</span>.</p>
+        <div class="row" style="margin-top:12px">
+          <label class="btn file">Pilih file Excel / CSV<input type="file" id="dmsFile" accept=".xlsx,.xls,.csv,.txt"></label>
+          <button class="btn" id="tplBtn" type="button">Unduh template</button>
+          <button class="btn" id="dmsReload" type="button">Ambil ulang dari Sheet</button>
+        </div>
+        <details>
+          <summary>Atau tempel data dari Excel</summary>
+          <textarea id="dmsPaste" rows="6" placeholder="sku	barcode	nama	isi_karton	stok"></textarea>
+          <div class="row" style="margin-top:8px"><button class="btn" id="dmsParseBtn" type="button">Baca data</button></div>
+        </details>
+        <div id="dmsPreview"></div>
+      </div>
+      <div class="panel">
+        <h3>Master barang <span class="cnt" id="dmsCnt"></span></h3>
+        <div class="rk-tools"><input type="search" id="dmsSearch" placeholder="Cari SKU / barcode / nama"></div>
+        <div class="tablewrap"><table id="dmsTable"></table></div>
+        <button class="btn more" id="dmsMore" type="button" hidden>Tampilkan lebih banyak</button>
+      </div>
+    </section>
+
+    <!-- SESI -->
+    <section class="tab" id="tab-sesi" hidden>
+      <div class="panel">
+        <h3>Device ini</h3>
+        <label class="lbl" for="devName">Nama device / penghitung</label>
+        <div class="row">
+          <input type="text" id="devName" placeholder="mis. HP-01 Rak A" maxlength="40">
+          <button class="btn primary" id="devSave" type="button">Simpan</button>
+        </div>
+        <p class="hint">Semua hitungan dari device ini ditandai dengan nama ini. Pakai nama unik per device.</p>
+      </div>
+      <div class="panel">
+        <h3>Sesi opname</h3>
+        <div class="row">
+          <input type="text" id="newSess" placeholder="mis. Opname Gudang A — Sep 2026" maxlength="80">
+          <button class="btn primary" id="newSessBtn" type="button">Buat sesi</button>
+        </div>
+        <p class="hint">Semua device yang memilih sesi yang sama akan dijumlahkan di Rekap.</p>
+        <div id="sessList" style="margin-top:8px"></div>
+        <div class="row" style="margin-top:10px"><button class="btn sm" id="sessReload" type="button">Muat ulang daftar sesi</button></div>
+      </div>
+      <div class="panel">
+        <h3>Akses</h3>
+        <p class="hint" style="margin-top:0">Masuk dengan kode akses tim. Keluar tidak menghapus hitungan yang belum terkirim di device ini.</p>
+        <div class="row" style="margin-top:10px"><button class="btn danger" id="logoutBtn" type="button">Keluar</button></div>
+      </div>
+    </section>
+  </main>
+</div>
+
+<!-- KAMERA -->
+<div class="modal" id="camModal" hidden role="dialog" aria-modal="true" aria-labelledby="camTitle">
+  <div class="modal-box">
+    <div class="modal-h"><b id="camTitle">Scan kamera</b><button class="btn sm" id="camClose" type="button">Tutup</button></div>
+    <div class="cam-wrap"><video id="camVideo" playsinline muted></video><div id="camFallback"></div><div class="cam-guide" aria-hidden="true"></div></div>
+    <div class="cam-msg" id="camMsg"></div>
+  </div>
+</div>
+
+<div class="toast" id="toast" hidden></div>
+
+<script src="assets/config.js?v=1"></script>
+<script src="assets/app.js?v=1"></script>
+</body>
+</html>
