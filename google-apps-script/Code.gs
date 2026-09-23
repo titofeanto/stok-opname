@@ -10,7 +10,7 @@
  * POST body JSON (Content-Type text/plain) {action, code, ...}
  *
  * Tab:
- *   Config      key/value: kode_akses, nama_gudang, master_versi, master_file, master_diimport
+ *   Config      key/value: kode_akses (admin), kode_hitung (link penghitung), nama_gudang, master_*
  *   Master_DMS  stok terakhir dari DMS (sku, barcode, barcode_karton, nama, isi_karton, stok)
  *   Sesi        daftar sesi opname
  *   Hitung      satu baris per sesi + device + SKU, nilai terakhir (karton, lusin, pcs)
@@ -34,29 +34,49 @@ function doPost(e) {
   return handle_(body);
 }
 
+const ADMIN_ONLY = ['rekap', 'createSession', 'setSessionStatus', 'deleteSession', 'importMaster', 'rotateCounterCode'];
+
 function handle_(p) {
   try {
     const ss = SpreadsheetApp.getActiveSpreadsheet();
     ensureSheets_(ss);
-    const cfg = readConfig_(ss);
+    let cfg = readConfig_(ss);
+    if (!String(cfg.kode_hitung || '').trim()) { setConfig_(ss, 'kode_hitung', newCounterCode_()); cfg = readConfig_(ss); }
     const code = String(p.code || '').trim();
     if (!code) return jsonOut_({ error: 'missing_code' });
-    if (!String(cfg.kode_akses || '').trim()) return jsonOut_({ error: 'no_access_code', message: 'Isi kode_akses di tab Config.' });
-    if (code !== String(cfg.kode_akses).trim()) return jsonOut_({ error: 'invalid_code' });
+    const admin = String(cfg.kode_akses || '').trim(), counter = String(cfg.kode_hitung || '').trim();
+    if (!admin) return jsonOut_({ error: 'no_access_code', message: 'Isi kode_akses di tab Config.' });
+    // kode_akses = admin (lihat semua); kode_hitung = penghitung (tanpa angka stok DMS, tanpa rekap).
+    const role = code === admin ? 'admin' : (code === counter ? 'hitung' : null);
+    if (!role) return jsonOut_({ error: 'invalid_code' });
+    if (role !== 'admin' && ADMIN_ONLY.indexOf(p.action) >= 0) return jsonOut_({ error: 'forbidden', message: 'Hanya untuk admin.' });
 
     switch (p.action) {
-      case 'init':
-        return jsonOut_({ ok: true, gudang: cfg.nama_gudang || '', sessions: readSessions_(ss),
-          master: masterMeta_(cfg), serverTime: new Date().toISOString() });
-      case 'master':
-        return jsonOut_({ ok: true, master: masterMeta_(cfg), values: ss.getSheetByName(SH.MASTER).getDataRange().getDisplayValues() });
+      case 'init': {
+        const sessions = readSessions_(ss);
+        const out = { ok: true, role: role, gudang: cfg.nama_gudang || '', master: masterMeta_(cfg), serverTime: new Date().toISOString(),
+          sessions: role === 'admin' ? sessions : sessions.filter(s => s.status !== 'closed') };
+        if (role === 'admin') out.kodeHitung = counter;
+        return jsonOut_(out);
+      }
+      case 'master': {
+        const values = ss.getSheetByName(SH.MASTER).getDataRange().getDisplayValues();
+        return jsonOut_({ ok: true, master: masterMeta_(cfg), values: role === 'admin' ? values : masterForCounter_(values) });
+      }
       case 'rekap':
         return jsonOut_({ ok: true, rows: readHitung_(ss, String(p.sesi || '')), serverTime: new Date().toISOString() });
+      case 'myRows': {
+        const dev = String(p.device_id || '');
+        return jsonOut_({ ok: true, rows: readHitung_(ss, String(p.sesi || '')).filter(r => r[0] === dev), serverTime: new Date().toISOString() });
+      }
       case 'push': return locked_(() => push_(ss, p));
       case 'createSession': return locked_(() => createSession_(ss, p));
       case 'setSessionStatus': return locked_(() => setSessionStatus_(ss, p));
       case 'deleteSession': return locked_(() => deleteSession_(ss, p));
       case 'importMaster': return locked_(() => importMaster_(ss, p));
+      case 'rotateCounterCode': return locked_(() => {
+        const c = newCounterCode_(); setConfig_(ss, 'kode_hitung', c); return jsonOut_({ ok: true, kodeHitung: c });
+      });
       default: return jsonOut_({ error: 'unknown_action' });
     }
   } catch (err) {
@@ -109,6 +129,28 @@ function setConfig_(ss, key, value) {
     if (String(values[i][0]).trim() === key) { sh.getRange(i + 1, 2).setValue(value); return; }
   }
   sh.appendRow([key, value]);
+}
+
+function newCounterCode_() {
+  return 'HITUNG-' + Utilities.getUuid().replace(/-/g, '').slice(0, 8).toUpperCase();
+}
+
+// Kolom yang boleh dilihat penghitung. Daftar putih, bukan daftar hitam: kolom stok
+// dengan nama apa pun (stok, saldo, qty, karton, ...) tidak pernah ikut terkirim.
+const COUNTER_COLS = {
+  sku: ['sku','kode','kode_barang','kode_produk','item_code','itemcode','product_code','kd_brg','kode_item','kodebarang'],
+  barcode: ['barcode','ean','upc','barcode_pcs','gtin','barcode_satuan'],
+  barcode_karton: ['barcode_karton','barcode_ctn','barcode_dus','ean_karton','barcode_box'],
+  nama: ['nama','nama_barang','nama_produk','name','product_name','deskripsi','description','item_name','namabarang'],
+  isi_karton: ['isi_karton','isi','pcs_per_karton','konversi','isi_ctn','pcs_karton','qty_per_karton','isi_dus','isi_per_karton'],
+};
+
+function masterForCounter_(values) {
+  if (!values.length) return [];
+  const head = values[0].map(h => String(h).trim().toLowerCase().replace(/[^a-z0-9]+/g, '_').replace(/^_|_$/g, ''));
+  const keys = Object.keys(COUNTER_COLS);
+  const idx = keys.map(k => head.findIndex(h => COUNTER_COLS[k].indexOf(h) >= 0));
+  return [keys].concat(values.slice(1).map(r => idx.map(i => (i >= 0 ? r[i] : ''))));
 }
 
 function masterMeta_(cfg) {

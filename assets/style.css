@@ -218,3 +218,4 @@ details textarea{margin-top:8px}
 }
 @media (min-width:761px){.toast{bottom:24px}}
 @media (prefers-reduced-motion:no-preference){.toast{animation:tin .18s ease-out}@keyframes tin{from{opacity:0;transform:translate(-50%,6px)}}}
+.linkbox{background:var(--surface-2);border:1px solid var(--line);border-radius:5px;padding:10px 12px;font-size:13px;word-break:break-all;user-select:all}

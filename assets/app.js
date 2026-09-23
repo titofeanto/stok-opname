@@ -3,6 +3,11 @@
 
 /* ================= helpers ================= */
 const $ = s => document.querySelector(s);
+const on = (sel, ev, fn) => { const el = $(sel); if (el) el.addEventListener(ev, fn); };
+// Halaman penghitung (hitung.html) memakai body data-mode="hitung": tanpa rekap dan tanpa angka stok DMS.
+const MODE = document.body.dataset.mode === 'hitung' ? 'hitung' : 'admin';
+const K = key => MODE === 'hitung' ? key + '-h' : key;
+const TABS = MODE === 'hitung' ? ['hitung', 'sesi'] : ['hitung', 'rekap', 'dms', 'sesi'];
 const esc = s => String(s ?? '').replace(/[&<>"']/g, c => ({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]));
 const nf = new Intl.NumberFormat('id-ID');
 const fmt = n => nf.format(n || 0);
@@ -46,11 +51,12 @@ function loadScript(src){
 
 /* ================= state ================= */
 const S = {
-  code: LS.get('so-code') || '',
+  code: (MODE === 'hitung' && new URLSearchParams(location.search).get('k')) || LS.get(K('so-code')) || '',
+  role: null, kodeHitung: '', confirmRotate: false,
   deviceId: LS.get('so-device-id') || ('d-' + rid() + rid()),
   deviceName: LS.get('so-device-name') || '',
   gudang: '',
-  sessions: LS.json('so-sessions') || [],
+  sessions: LS.json(K('so-sessions')) || [],
   sessionId: LS.get('so-session') || null,
   master: {meta:null, items:[]}, bySku: new Map(), byCode: new Map(),
   local: null, dirty: {}, plog: [], ready: false,   // data device ini untuk sesi aktif
@@ -93,14 +99,19 @@ async function login(code, silent){
   if (!silent) { btn.disabled = true; btn.textContent = 'Menghubungkan…'; }
   try {
     const d = await API.get({action: 'init'});
-    LS.set('so-code', code);
+    if (MODE === 'admin' && d.role !== 'admin') { $('#loginErr').textContent = 'Kode ini untuk link penghitung. Masukkan kode admin.'; S.code = ''; showLogin(); return; }
+    LS.set(K('so-code'), code);
+    S.role = d.role; S.kodeHitung = d.kodeHitung || '';
     applyInit(d);
     showApp();
     await syncMaster(d.master);
   } catch(e){
-    if (e.code === 'invalid_code') { $('#loginErr').textContent = 'Kode akses salah.'; LS.del('so-code'); showLogin(); }
+    if (e.code === 'invalid_code') {
+      $('#loginErr').textContent = MODE === 'hitung' ? 'Link penghitung tidak berlaku atau kodenya sudah diganti. Minta link baru ke admin.' : 'Kode akses salah.';
+      LS.del(K('so-code')); showLogin();
+    }
     else if (e.code === 'no_access_code') $('#loginErr').textContent = 'Kode akses belum diisi di tab Config Google Sheet.';
-    else if (silent && S.code && LS.json('so-master')) { S.online = false; showApp(); showBanner('Offline. Hitungan disimpan di device ini dan dikirim otomatis saat sinyal kembali.'); }
+    else if (silent && S.code && LS.json(K('so-master'))) { S.online = false; showApp(); showBanner('Offline. Hitungan disimpan di device ini dan dikirim otomatis saat sinyal kembali.'); }
     else $('#loginErr').textContent = 'Tidak bisa terhubung ke Apps Script. Cek internet atau URL di config.js. (' + e.message + ')';
   } finally {
     btn.disabled = false; btn.textContent = 'Masuk';
@@ -110,7 +121,7 @@ function applyInit(d){
   S.online = true;
   S.gudang = d.gudang || '';
   S.sessions = (d.sessions || []).sort((a, b) => String(b.createdAt).localeCompare(String(a.createdAt)));
-  LS.put('so-sessions', S.sessions);
+  LS.put(K('so-sessions'), S.sessions);
   let sid = S.sessionId;
   if (!sid || !S.sessions.find(s => s.id === sid)) { const pick = S.sessions.find(s => s.status !== 'closed') || S.sessions[0]; sid = pick ? pick.id : null; }
   if (sid !== S.sessionId || !S.local) selectSession(sid);
@@ -119,9 +130,9 @@ function showLogin(){ $('#appScreen').hidden = true; $('#loginScreen').hidden = 
 let started = false;
 function showApp(){
   $('#loginScreen').hidden = true; $('#appScreen').hidden = false;
-  if (!S.master.items.length) { const c = LS.json('so-master'); if (c) setMaster(c.meta, c.items); }
+  if (!S.master.items.length) { const c = LS.json(K('so-master')); if (c) setMaster(c.meta, c.items); }
   if (!S.local && S.sessionId) selectSession(S.sessionId);
-  setTab(['hitung','rekap','dms','sesi'].includes(LS.get('so-tab')) ? LS.get('so-tab') : 'hitung');
+  setTab(TABS.includes(LS.get(K('so-tab'))) ? LS.get(K('so-tab')) : 'hitung');
   if (!started) { started = true; setInterval(tick, 20000); }
   pushAll();
 }
@@ -136,14 +147,14 @@ function setMaster(meta, items){
   }
 }
 async function syncMaster(meta, force){
-  const cached = LS.json('so-master');
+  const cached = LS.json(K('so-master'));
   if (!force && cached && meta && cached.meta && cached.meta.version === meta.version && meta.version) { setMaster(cached.meta, cached.items); renderAll(); return; }
   try {
     const d = await API.get({action: 'master'});
-    const parsed = parseDmsRows(d.values || [], 'Sheet');
+    const parsed = parseDmsRows(d.values || [], 'Sheet', MODE === 'hitung');
     const items = parsed.items || [];
     setMaster(d.master, items);
-    LS.put('so-master', {meta: d.master, items});
+    LS.put(K('so-master'), {meta: d.master, items});
     renderAll();
     if (force) toast('Stok DMS diambil ulang: ' + fmt(items.length) + ' SKU');
   } catch(e){ if (cached) setMaster(cached.meta, cached.items); if (force) toast('Gagal mengambil stok DMS'); renderAll(); }
@@ -178,7 +189,7 @@ function canCount(){
 async function fetchRekap(){
   const sid = S.sessionId; if (!sid) return;
   try {
-    const d = await API.get({action: 'rekap', sesi: sid});
+    const d = await API.get(MODE === 'hitung' ? {action: 'myRows', sesi: sid, device_id: S.deviceId} : {action: 'rekap', sesi: sid});
     if (S.sessionId !== sid) return;
     S.online = true;
     S.remote = d.rows || []; S.remoteAt = d.serverTime || now(); S.remoteSid = sid;
@@ -423,7 +434,8 @@ async function closeCam(){
 /* ================= render: header & hitung ================= */
 function renderHeader(){
   const s = curSession();
-  $('#brandT').textContent = S.gudang ? 'Opname · ' + S.gudang : 'Stok Opname';
+  const label = MODE === 'hitung' ? 'Hitung' : 'Opname';
+  $('#brandT').textContent = S.gudang ? label + ' · ' + S.gudang : (MODE === 'hitung' ? 'Hitung Stok' : 'Stok Opname');
   $('#hdrSession').textContent = s ? s.name + (s.status === 'closed' ? ' · ditutup' : '') : 'Belum ada sesi';
   const chip = $('#devChip'); chip.textContent = S.deviceName || 'Atur nama device'; chip.classList.toggle('missing', !S.deviceName);
   renderSync();
@@ -431,10 +443,11 @@ function renderHeader(){
 function renderHitung(){
   const s = curSession(); let html = '';
   if (!S.deviceName) html = `<div class="callout"><span>Beri nama device ini dulu, supaya hitungannya bisa ditandai.</span><button class="btn primary" type="button" data-go="sesi">Atur nama device</button></div>`;
+  else if (!s && MODE === 'hitung') html = `<div class="callout"><span>Belum ada sesi opname yang berjalan. Minta admin membuat sesi, lalu buka ulang halaman ini.</span></div>`;
   else if (!s) html = `<div class="callout"><span>Belum ada sesi opname. Buat sesi dulu, lalu semua device pilih sesi yang sama.</span><button class="btn primary" type="button" data-go="sesi">Buat sesi</button></div>`;
   else if (s.status === 'closed') html = `<div class="callout"><span>Sesi <b>${esc(s.name)}</b> sudah ditutup. Buka lagi di tab Sesi untuk menambah hitungan.</span></div>`;
   else if (!S.ready) html = `<div class="callout"><span>Memuat hitungan device ini dari Google Sheet… Perlu online sekali untuk sesi ini.</span></div>`;
-  else if (!S.master.items.length) html = `<div class="callout"><span>Stok DMS belum ada. Scan tetap tercatat, tapi nama barang dan isi karton belum dikenali.</span><button class="btn" type="button" data-go="dms">Import stok DMS</button></div>`;
+  else if (!S.master.items.length) html = `<div class="callout"><span>Data barang belum ada. Scan tetap tercatat, tapi nama barang dan isi karton belum dikenali.</span>${MODE === 'admin' ? '<button class="btn" type="button" data-go="dms">Import stok DMS</button>' : ''}</div>`;
   $('#hitungNotice').innerHTML = html;
   const ok = canCount();
   ['#scanInput', '#scanBtn', '#camBtn'].forEach(x => $(x).disabled = !ok);
@@ -617,14 +630,14 @@ function parseDelimited(text){
   return rows;
 }
 const int = v => { const n = parseInt(String(v ?? '').replace(/[^\d-]/g, ''), 10); return isNaN(n) ? 0 : n; };
-function parseDmsRows(rows, fileName){
+function parseDmsRows(rows, fileName, noStock){
   rows = rows.filter(r => r && r.some(c => String(c ?? '').trim() !== ''));
   if (rows.length < 2) return {items: [], error: 'Data kosong atau hanya berisi header.'};
   const head = rows[0].map(h => String(h).trim().toLowerCase().replace(/[^a-z0-9]+/g, '_').replace(/^_|_$/g, ''));
   const col = {};
   for (const [key, names] of Object.entries(ALIAS)) { const i = head.findIndex(h => names.includes(h)); if (i >= 0) col[key] = i; }
   if (col.s == null) return {items: [], error: 'Kolom SKU tidak ditemukan. Header yang terbaca: ' + rows[0].join(', ')};
-  if (col.q == null && col.qk == null && col.ql == null && col.qp == null) return {items: [], error: 'Kolom stok tidak ditemukan. Tambah kolom "stok" (dalam pcs).'};
+  if (!noStock && col.q == null && col.qk == null && col.ql == null && col.qp == null) return {items: [], error: 'Kolom stok tidak ditemukan. Tambah kolom "stok" (dalam pcs).'};
   const map = new Map(); let skipped = 0, dup = 0;
   const cell = (r, k) => col[k] != null ? String(r[col[k]] ?? '').trim() : '';
   for (const r of rows.slice(1)) {
@@ -702,22 +715,43 @@ function renderSesi(){
       <div><div class="nm">${esc(s.name)}</div><div class="m">Dibuat ${esc(fmtDate(s.createdAt))} · <span class="pill ${s.status === 'closed' ? 'closed' : 'open'}">${s.status === 'closed' ? 'Ditutup' : 'Berjalan'}</span></div></div>
       <div class="acts">
         ${cur ? '<span class="you">dipakai</span>' : `<button class="btn sm primary" type="button" data-use="${esc(s.id)}">Pakai</button>`}
-        <button class="btn sm" type="button" data-toggle="${esc(s.id)}">${s.status === 'closed' ? 'Buka lagi' : 'Tutup sesi'}</button>
-        <button class="btn sm danger" type="button" data-sdel="${esc(s.id)}">Hapus</button>
+        ${MODE === 'admin' ? `<button class="btn sm" type="button" data-toggle="${esc(s.id)}">${s.status === 'closed' ? 'Buka lagi' : 'Tutup sesi'}</button>
+        <button class="btn sm danger" type="button" data-sdel="${esc(s.id)}">Hapus</button>` : ''}
       </div>
       ${S.confirmSess === s.id ? `<div class="confirm"><span>Hapus sesi "${esc(s.name)}" beserta hitungan semua device di Google Sheet? Tidak bisa dibatalkan.</span><button class="btn sm danger" type="button" data-sdelyes="${esc(s.id)}">Ya, hapus</button><button class="btn sm" type="button" data-scancel="1">Batal</button></div>` : ''}
     </div>`;
-  }).join('') : '<div class="empty">Belum ada sesi.</div>';
+  }).join('') : `<div class="empty">${MODE === 'hitung' ? 'Belum ada sesi yang berjalan. Minta admin membuat sesi.' : 'Belum ada sesi.'}</div>`;
+  renderCounterLink();
+}
+function counterUrl(){ return new URL('hitung.html?k=' + encodeURIComponent(S.kodeHitung), location.href).toString(); }
+function renderCounterLink(){
+  const box = $('#counterLink'); if (!box) return;
+  if (!S.kodeHitung) { box.innerHTML = '<div class="empty">Memuat…</div>'; return; }
+  box.innerHTML = `<div class="linkbox mono" id="counterUrl">${esc(counterUrl())}</div>
+    <div class="row" style="margin-top:10px">
+      <button class="btn primary" type="button" id="copyCounter">Salin link</button>
+      <button class="btn danger" type="button" id="rotateCounter">Ganti link</button>
+    </div>
+    ${S.confirmRotate ? `<div class="confirm" style="margin-top:10px"><span>Link lama langsung tidak berlaku. Semua penghitung harus membuka link baru. Hitungan yang sudah ada tetap aman.</span><button class="btn sm danger" type="button" id="rotateYes">Ya, ganti</button><button class="btn sm" type="button" id="rotateNo">Batal</button></div>` : ''}`;
+}
+async function copyCounter(){
+  const url = counterUrl();
+  try { await navigator.clipboard.writeText(url); toast('Link penghitung disalin'); }
+  catch(e){ const r = document.createRange(); r.selectNodeContents($('#counterUrl')); const sel = getSelection(); sel.removeAllRanges(); sel.addRange(r); toast('Tekan Salin untuk menyalin link'); }
+}
+async function rotateCounter(){
+  try { const d = await API.post({action: 'rotateCounterCode'}); S.kodeHitung = d.kodeHitung; S.confirmRotate = false; renderCounterLink(); toast('Link penghitung baru dibuat'); }
+  catch(e){ S.confirmRotate = false; renderCounterLink(); toast(netFail(e) ? 'Perlu koneksi internet untuk ini' : 'Gagal: ' + e.message); }
 }
 function setSessions(list){
   S.sessions = (list || []).sort((a, b) => String(b.createdAt).localeCompare(String(a.createdAt)));
-  LS.put('so-sessions', S.sessions);
+  LS.put(K('so-sessions'), S.sessions);
   S.sessions.forEach(s => { if (s.status !== 'closed') delete S.blocked[s.id]; });
   if (S.sessionId && !S.sessions.find(s => s.id === S.sessionId)) { const pick = S.sessions.find(s => s.status !== 'closed') || S.sessions[0]; selectSession(pick ? pick.id : null); }
   renderAll();
 }
 async function refreshSessions(){
-  try { const d = await API.get({action: 'init'}); S.online = true; S.gudang = d.gudang || ''; setSessions(d.sessions); if (d.master && (!S.master.meta || d.master.version !== S.master.meta.version)) syncMaster(d.master); }
+  try { const d = await API.get({action: 'init'}); S.online = true; S.gudang = d.gudang || ''; S.kodeHitung = d.kodeHitung || S.kodeHitung; setSessions(d.sessions); if (d.master && (!S.master.meta || d.master.version !== S.master.meta.version)) syncMaster(d.master); }
   catch(e){ if (netFail(e)) { S.online = false; renderSync(); } }
 }
 async function sessAction(body, okMsg){
@@ -734,9 +768,10 @@ async function createSession(){
 
 /* ================= tabs / render ================= */
 function setTab(t){
-  S.tab = t; LS.set('so-tab', t);
+  if (!TABS.includes(t)) t = 'hitung';
+  S.tab = t; LS.set(K('so-tab'), t);
   document.querySelectorAll('#tabs button').forEach(b => b.setAttribute('aria-selected', String(b.dataset.tab === t)));
-  ['hitung', 'rekap', 'dms', 'sesi'].forEach(k => $('#tab-' + k).hidden = k !== t);
+  TABS.forEach(k => $('#tab-' + k).hidden = k !== t);
   renderAll();
   if (t === 'rekap') fetchRekap();
   if (t === 'sesi') refreshSessions();
@@ -751,34 +786,41 @@ function renderAll(){
   if (S.tab === 'sesi') renderSesi();
 }
 function logout(expired){
-  closeCam(); LS.del('so-code'); S.code = '';
-  $('#loginErr').textContent = expired ? 'Kode akses sudah diganti. Masukkan kode yang baru.' : '';
+  closeCam(); LS.del(K('so-code')); S.code = '';
+  $('#loginErr').textContent = !expired ? '' : MODE === 'hitung' ? 'Link penghitung sudah diganti. Minta link baru ke admin.' : 'Kode akses sudah diganti. Masukkan kode yang baru.';
   showLogin();
 }
 
 /* ================= events ================= */
-$('#loginForm').addEventListener('submit', e => { e.preventDefault(); const c = $('#codeInput').value.trim(); if (!c) { $('#loginErr').textContent = 'Isi kode akses dulu.'; return; } $('#loginErr').textContent = ''; login(c, false); });
-$('#tabs').addEventListener('click', e => { const b = e.target.closest('button[data-tab]'); if (b) setTab(b.dataset.tab); });
-document.addEventListener('click', e => { const g = e.target.closest('[data-go]'); if (g) { setTab(g.dataset.go); if (g.dataset.go === 'sesi') setTimeout(() => (S.deviceName ? $('#newSess') : $('#devName')).focus(), 0); } });
-$('#devChip').addEventListener('click', () => { setTab('sesi'); setTimeout(() => $('#devName').focus(), 0); });
+on('#loginForm', 'submit', e => { e.preventDefault(); const c = $('#codeInput').value.trim(); if (!c) { $('#loginErr').textContent = 'Isi kode akses dulu.'; return; } $('#loginErr').textContent = ''; login(c, false); });
+on('#tabs', 'click', e => { const b = e.target.closest('button[data-tab]'); if (b) setTab(b.dataset.tab); });
+document.addEventListener('click', e => { const g = e.target.closest('[data-go]'); if (g) { setTab(g.dataset.go); if (g.dataset.go === 'sesi') setTimeout(() => { const el = S.deviceName ? $('#newSess') : $('#devName'); if (el) el.focus(); }, 0); } });
+on('#counterLink', 'click', e => {
+  const id = e.target.id;
+  if (id === 'copyCounter') copyCounter();
+  else if (id === 'rotateCounter') { S.confirmRotate = true; renderCounterLink(); }
+  else if (id === 'rotateNo') { S.confirmRotate = false; renderCounterLink(); }
+  else if (id === 'rotateYes') rotateCounter();
+});
+on('#devChip', 'click', () => { setTab('sesi'); setTimeout(() => $('#devName').focus(), 0); });
 
-$('#scanInput').addEventListener('keydown', e => { if (e.key === 'Enter') { e.preventDefault(); handleScan(); } });
-$('#scanInput').addEventListener('input', e => { if (!S.quickOn) renderSuggest(suggestions(e.target.value)); });
-$('#scanBtn').addEventListener('click', handleScan);
-$('#camBtn').addEventListener('click', openCam);
-$('#camClose').addEventListener('click', closeCam);
-$('#suggest').addEventListener('click', e => { const b = e.target.closest('[data-sku]'); if (!b) return; const p = productFor(b.dataset.sku); $('#scanInput').value = ''; renderSuggest([]); scanMsg(''); if (p) openCard(p, p.s); });
-$('#quickOn').addEventListener('change', e => { S.quickOn = e.target.checked; LS.set('so-quick', S.quickOn ? '1' : '0'); renderSuggest([]); renderHitung(); });
-$('#quickUnit').addEventListener('click', e => { const b = e.target.closest('[data-u]'); if (!b) return; S.quickUnit = b.dataset.u; LS.set('so-quick-unit', S.quickUnit); renderHitung(); });
+on('#scanInput', 'keydown', e => { if (e.key === 'Enter') { e.preventDefault(); handleScan(); } });
+on('#scanInput', 'input', e => { if (!S.quickOn) renderSuggest(suggestions(e.target.value)); });
+on('#scanBtn', 'click', handleScan);
+on('#camBtn', 'click', openCam);
+on('#camClose', 'click', closeCam);
+on('#suggest', 'click', e => { const b = e.target.closest('[data-sku]'); if (!b) return; const p = productFor(b.dataset.sku); $('#scanInput').value = ''; renderSuggest([]); scanMsg(''); if (p) openCard(p, p.s); });
+on('#quickOn', 'change', e => { S.quickOn = e.target.checked; LS.set('so-quick', S.quickOn ? '1' : '0'); renderSuggest([]); renderHitung(); });
+on('#quickUnit', 'click', e => { const b = e.target.closest('[data-u]'); if (!b) return; S.quickUnit = b.dataset.u; LS.set('so-quick-unit', S.quickUnit); renderHitung(); });
 ['#qK', '#qL', '#qP'].forEach(s => {
   $(s).addEventListener('input', updatePreview);
   $(s).addEventListener('keydown', e => { if (e.key === 'Enter') { e.preventDefault(); submitCard(); } });
 });
-$('#addBtn').addEventListener('click', submitCard);
-$('#pcClose').addEventListener('click', () => { closeCard(); scanMsg(''); });
+on('#addBtn', 'click', submitCard);
+on('#pcClose', 'click', () => { closeCard(); scanMsg(''); });
 
-$('#logList').addEventListener('click', e => { const b = e.target.closest('[data-undo]'); if (b) undoLog(b.dataset.undo); });
-$('#myList').addEventListener('click', e => {
+on('#logList', 'click', e => { const b = e.target.closest('[data-undo]'); if (b) undoLog(b.dataset.undo); });
+on('#myList', 'click', e => {
   const b = e.target.closest('button'); if (!b) return;
   if (b.dataset.edit) { S.editing = b.dataset.edit; S.confirmDel = null; renderHitungLists(); setTimeout(() => $('#e-l') && $('#e-l').focus(), 0); }
   else if (b.dataset.del) { S.confirmDel = b.dataset.del; S.editing = null; renderHitungLists(); }
@@ -795,26 +837,26 @@ $('#myList').addEventListener('click', e => {
   }
 });
 
-$('#rkFilter').addEventListener('click', e => { const b = e.target.closest('[data-f]'); if (!b) return; S.rkFilter = b.dataset.f; S.rkLimit = 200; renderRekap(); });
-$('#rkSearch').addEventListener('input', e => { S.rkSearch = e.target.value; S.rkLimit = 200; renderRekap(); });
-$('#rkMore').addEventListener('click', () => { S.rkLimit += 300; renderRekap(); });
-$('#rkRefresh').addEventListener('click', () => { pushAll(); fetchRekap(); });
-$('#exportBtn').addEventListener('click', exportRekap);
+on('#rkFilter', 'click', e => { const b = e.target.closest('[data-f]'); if (!b) return; S.rkFilter = b.dataset.f; S.rkLimit = 200; renderRekap(); });
+on('#rkSearch', 'input', e => { S.rkSearch = e.target.value; S.rkLimit = 200; renderRekap(); });
+on('#rkMore', 'click', () => { S.rkLimit += 300; renderRekap(); });
+on('#rkRefresh', 'click', () => { pushAll(); fetchRekap(); });
+on('#exportBtn', 'click', exportRekap);
 
-$('#dmsFile').addEventListener('change', e => { const f = e.target.files[0]; if (f) readDmsFile(f); e.target.value = ''; });
-$('#dmsParseBtn').addEventListener('click', () => { const t = $('#dmsPaste').value; if (!t.trim()) return; S.parsed = parseDmsRows(parseDelimited(t), 'data tempel'); S.confirmImport = false; renderDmsPreview(); });
-$('#dmsPreview').addEventListener('click', e => {
+on('#dmsFile', 'change', e => { const f = e.target.files[0]; if (f) readDmsFile(f); e.target.value = ''; });
+on('#dmsParseBtn', 'click', () => { const t = $('#dmsPaste').value; if (!t.trim()) return; S.parsed = parseDmsRows(parseDelimited(t), 'data tempel'); S.confirmImport = false; renderDmsPreview(); });
+on('#dmsPreview', 'click', e => {
   if (e.target.id === 'impBtn') { if (S.master.items.length) { S.confirmImport = true; renderDmsPreview(); } else importMaster(); }
   else if (e.target.id === 'impYes') importMaster();
   else if (e.target.id === 'impNo') { if (S.confirmImport) S.confirmImport = false; else S.parsed = null; renderDmsPreview(); }
 });
-$('#dmsReload').addEventListener('click', () => syncMaster(null, true));
-$('#tplBtn').addEventListener('click', () => saveXlsx('template-stok-dms.xlsx', [['Master_DMS', [
+on('#dmsReload', 'click', () => syncMaster(null, true));
+on('#tplBtn', 'click', () => saveXlsx('template-stok-dms.xlsx', [['Master_DMS', [
   ['sku', 'barcode', 'barcode_karton', 'nama', 'isi_karton', 'stok'],
   ['BRG-001', '8991234567001', '18991234567001', 'Contoh Barang A 250ml', 48, 1200],
   ['BRG-002', '8991234567002', '', 'Contoh Barang B 1kg', 12, 300]], [12, 16, 16, 30, 10, 10]]]));
-$('#dmsSearch').addEventListener('input', e => { S.dmsSearch = e.target.value; S.dmsLimit = 200; renderDms(); });
-$('#dmsMore').addEventListener('click', () => { S.dmsLimit += 300; renderDms(); });
+on('#dmsSearch', 'input', e => { S.dmsSearch = e.target.value; S.dmsLimit = 200; renderDms(); });
+on('#dmsMore', 'click', () => { S.dmsLimit += 300; renderDms(); });
 
 function saveDeviceName(){
   const v = $('#devName').value.trim().slice(0, 40); if (!v) { $('#devName').focus(); return; }
@@ -822,12 +864,12 @@ function saveDeviceName(){
   if (S.local && Object.keys(S.local.items).length) { const first = Object.keys(S.local.items)[0]; markDirty(first); saveLocal(); schedulePush(500); }
   renderAll();
 }
-$('#devSave').addEventListener('click', saveDeviceName);
-$('#devName').addEventListener('keydown', e => { if (e.key === 'Enter') saveDeviceName(); });
-$('#newSessBtn').addEventListener('click', createSession);
-$('#newSess').addEventListener('keydown', e => { if (e.key === 'Enter') createSession(); });
-$('#sessReload').addEventListener('click', () => refreshSessions().then(() => toast('Daftar sesi diperbarui')));
-$('#sessList').addEventListener('click', e => {
+on('#devSave', 'click', saveDeviceName);
+on('#devName', 'keydown', e => { if (e.key === 'Enter') saveDeviceName(); });
+on('#newSessBtn', 'click', createSession);
+on('#newSess', 'keydown', e => { if (e.key === 'Enter') createSession(); });
+on('#sessReload', 'click', () => refreshSessions().then(() => toast('Daftar sesi diperbarui')));
+on('#sessList', 'click', e => {
   const b = e.target.closest('button'); if (!b) return;
   if (b.dataset.use) { selectSession(b.dataset.use); toast('Sesi dipakai'); }
   else if (b.dataset.toggle) { const s = S.sessions.find(x => x.id === b.dataset.toggle); if (s) sessAction({action: 'setSessionStatus', sesi: s.id, status: s.status === 'closed' ? 'open' : 'closed'}, s.status === 'closed' ? 'Sesi dibuka lagi' : 'Sesi ditutup').then(() => pushAll()); }
@@ -838,7 +880,7 @@ $('#sessList').addEventListener('click', e => {
     sessAction({action: 'deleteSession', sesi: sid}, 'Sesi dihapus').then(d => { if (d) ['so-st-', 'so-dirty-', 'so-plog-'].forEach(p => LS.del(p + sid)); });
   }
 });
-$('#logoutBtn').addEventListener('click', () => logout(false));
+on('#logoutBtn', 'click', () => logout(false));
 document.addEventListener('keydown', e => { if (e.key === 'Escape' && Cam.active) closeCam(); });
 
 /* ================= start ================= */

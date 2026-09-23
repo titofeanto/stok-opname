@@ -5,22 +5,23 @@
 <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
 <meta name="color-scheme" content="light dark">
 <meta name="theme-color" content="#1A1F1C">
-<title>Stok Opname Gudang</title>
+<meta name="robots" content="noindex">
+<title>Hitung Stok Gudang</title>
 <link rel="preconnect" href="https://fonts.googleapis.com">
 <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
 <link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Barlow+Condensed:wght@600;700&family=IBM+Plex+Mono:wght@500&family=IBM+Plex+Sans:wght@400;500;600&display=swap">
 <link rel="stylesheet" href="assets/style.css?v=2">
 </head>
-<body>
+<body data-mode="hitung">
 
-<!-- LOGIN -->
+<!-- LOGIN (hanya muncul kalau link tidak berlaku) -->
 <div class="login-wrap" id="loginScreen">
   <form class="login-box" id="loginForm" autocomplete="off">
     <span class="mark big" aria-hidden="true">SO</span>
-    <h1>Stok Opname</h1>
-    <p>Hitung stok gudang dari beberapa device sekaligus. Semua hitungan dijumlahkan dan dibandingkan dengan stok DMS di Google Sheet.</p>
-    <label class="lbl" for="codeInput">Kode admin</label>
-    <input type="text" id="codeInput" autocomplete="off" autocapitalize="characters" placeholder="mis. GUDANG-2026">
+    <h1>Hitung Stok</h1>
+    <p>Buka halaman ini dari link penghitung yang dibagikan admin.</p>
+    <label class="lbl" for="codeInput">Kode penghitung</label>
+    <input type="text" id="codeInput" autocomplete="off" autocapitalize="characters" placeholder="mis. HITUNG-XXXXXXXX">
     <button type="submit" class="btn primary wide" id="loginBtn">Masuk</button>
     <div class="err" id="loginErr" role="alert"></div>
   </form>
@@ -31,7 +32,7 @@
   <header class="top">
     <div class="brand">
       <span class="mark" aria-hidden="true">SO</span>
-      <div><div class="brand-t" id="brandT">Stok Opname</div><div class="brand-s" id="hdrSession">Memuat…</div></div>
+      <div><div class="brand-t" id="brandT">Hitung Stok</div><div class="brand-s" id="hdrSession">Memuat…</div></div>
     </div>
     <span class="sync" id="sync"></span>
     <button class="devchip" id="devChip" type="button">Atur nama device</button>
@@ -40,9 +41,7 @@
 
   <nav class="tabs" id="tabs" role="tablist">
     <button role="tab" data-tab="hitung" aria-selected="true">Hitung</button>
-    <button role="tab" data-tab="rekap" aria-selected="false">Rekap</button>
-    <button role="tab" data-tab="dms" aria-selected="false">Stok DMS</button>
-    <button role="tab" data-tab="sesi" aria-selected="false">Sesi</button>
+    <button role="tab" data-tab="sesi" aria-selected="false">Device &amp; sesi</button>
   </nav>
 
   <main>
@@ -101,57 +100,7 @@
       </div>
     </section>
 
-    <!-- REKAP -->
-    <section class="tab" id="tab-rekap" hidden>
-      <div class="rk-head">
-        <span class="hint" id="rkUpdated"></span>
-        <button class="btn sm" id="rkRefresh" type="button">Muat ulang</button>
-      </div>
-      <div class="tiles" id="tiles"></div>
-      <div class="panel">
-        <h3>Device penghitung <span class="cnt" id="devCnt"></span></h3>
-        <div class="devs" id="devList"></div>
-      </div>
-      <div class="panel">
-        <h3>Hasil vs stok DMS</h3>
-        <div class="rk-tools">
-          <div class="seg" id="rkFilter" role="group" aria-label="Filter status"></div>
-          <input type="search" id="rkSearch" placeholder="Cari SKU / nama barang">
-          <button class="btn" id="exportBtn" type="button">Export Excel</button>
-        </div>
-        <div class="tablewrap"><table id="rkTable"></table></div>
-        <button class="btn more" id="rkMore" type="button" hidden>Tampilkan lebih banyak</button>
-        <p class="hint">Total hitung = jumlah semua device. Karton dihitung pakai isi karton dari data DMS, lusin = 12 pcs. Rekap dimuat ulang otomatis tiap 20 detik.</p>
-      </div>
-    </section>
-
-    <!-- DMS -->
-    <section class="tab" id="tab-dms" hidden>
-      <div class="panel">
-        <h3>Stok terakhir dari DMS</h3>
-        <div id="dmsMeta" class="hint"></div>
-        <p class="hint">Unggah ekspor stok DMS (Excel atau CSV), atau tempel langsung di tab <span class="mono">Master_DMS</span> di Google Sheet. Kolom yang dibaca: <span class="mono">sku, barcode, barcode_karton, nama, isi_karton, stok</span>. Kolom <span class="mono">stok</span> dalam pcs. Bisa juga pakai kolom <span class="mono">karton, lusin, pcs</span>.</p>
-        <div class="row" style="margin-top:12px">
-          <label class="btn file">Pilih file Excel / CSV<input type="file" id="dmsFile" accept=".xlsx,.xls,.csv,.txt"></label>
-          <button class="btn" id="tplBtn" type="button">Unduh template</button>
-          <button class="btn" id="dmsReload" type="button">Ambil ulang dari Sheet</button>
-        </div>
-        <details>
-          <summary>Atau tempel data dari Excel</summary>
-          <textarea id="dmsPaste" rows="6" placeholder="sku	barcode	nama	isi_karton	stok"></textarea>
-          <div class="row" style="margin-top:8px"><button class="btn" id="dmsParseBtn" type="button">Baca data</button></div>
-        </details>
-        <div id="dmsPreview"></div>
-      </div>
-      <div class="panel">
-        <h3>Master barang <span class="cnt" id="dmsCnt"></span></h3>
-        <div class="rk-tools"><input type="search" id="dmsSearch" placeholder="Cari SKU / barcode / nama"></div>
-        <div class="tablewrap"><table id="dmsTable"></table></div>
-        <button class="btn more" id="dmsMore" type="button" hidden>Tampilkan lebih banyak</button>
-      </div>
-    </section>
-
-    <!-- SESI -->
+    <!-- DEVICE & SESI -->
     <section class="tab" id="tab-sesi" hidden>
       <div class="panel">
         <h3>Device ini</h3>
@@ -164,23 +113,9 @@
       </div>
       <div class="panel">
         <h3>Sesi opname</h3>
-        <div class="row">
-          <input type="text" id="newSess" placeholder="mis. Opname Gudang A — Sep 2026" maxlength="80">
-          <button class="btn primary" id="newSessBtn" type="button">Buat sesi</button>
-        </div>
-        <p class="hint">Semua device yang memilih sesi yang sama akan dijumlahkan di Rekap.</p>
+        <p class="hint" style="margin-top:0">Sesi dibuat oleh admin. Sesi yang sedang berjalan otomatis dipakai.</p>
         <div id="sessList" style="margin-top:8px"></div>
         <div class="row" style="margin-top:10px"><button class="btn sm" id="sessReload" type="button">Muat ulang daftar sesi</button></div>
-      </div>
-      <div class="panel">
-        <h3>Link penghitung</h3>
-        <p class="hint" style="margin-top:0">Bagikan link ini ke tim gudang. Penghitung langsung masuk tanpa kode, hanya bisa scan dan menghitung. Penghitung tidak bisa melihat stok DMS maupun rekap.</p>
-        <div id="counterLink" style="margin-top:10px"></div>
-      </div>
-      <div class="panel">
-        <h3>Akses admin</h3>
-        <p class="hint" style="margin-top:0">Halaman ini memakai kode admin (<span class="mono">kode_akses</span> di tab Config). Jangan bagikan ke penghitung. Keluar tidak menghapus hitungan yang belum terkirim di device ini.</p>
-        <div class="row" style="margin-top:10px"><button class="btn danger" id="logoutBtn" type="button">Keluar</button></div>
       </div>
     </section>
   </main>

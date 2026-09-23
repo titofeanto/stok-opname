@@ -40,6 +40,20 @@ Tambahan:
 - **Koreksi dan batal.** Setiap scan bisa dibatalkan, dan setiap SKU bisa
   dikoreksi atau dihapus. Semua perubahan tercatat di tab `Log`.
 
+## Dua link: admin dan penghitung
+
+| Link | Siapa | Bisa apa |
+|---|---|---|
+| `https://<akun>.github.io/stok-opname/` + kode admin | admin / supervisor | hitung, rekap, upload stok DMS, kelola sesi, export Excel |
+| `https://<akun>.github.io/stok-opname/hitung.html?k=HITUNG-…` | tim gudang | langsung masuk tanpa kode, hanya scan dan hitung |
+
+Pembatasan dilakukan di server (`Code.gs`), bukan hanya disembunyikan di layar:
+dengan kode penghitung, server hanya mengirim SKU, barcode, nama, dan isi karton,
+**tanpa angka stok**. Server juga menolak rekap, upload DMS, dan kelola sesi.
+Link penghitung disalin dari halaman admin: tab **Sesi > Link penghitung >
+Salin link**. Kalau link bocor, klik **Ganti link**. Link lama langsung tidak
+berlaku, dan hitungan yang sudah ada tetap aman.
+
 ## Gratis, dan siapa bisa melihat apa
 
 - GitHub Pages gratis untuk repo publik. Apps Script gratis untuk akun Google biasa.
@@ -73,7 +87,8 @@ Tambahan:
 
 | key | value |
 |---|---|
-| `kode_akses` | kode untuk masuk, mis. `GUDANG-2026` |
+| `kode_akses` | **kode admin** untuk halaman utama (rekap, stok DMS, sesi), mis. `GUDANG-2026` |
+| `kode_hitung` | **kode link penghitung**, dibuat otomatis (`HITUNG-XXXXXXXX`). Ganti dari tab Sesi > Link penghitung |
 | `nama_gudang` | tampil di atas halaman, mis. `Gudang Timika` |
 | `master_versi`, `master_file`, `master_diimport` | diisi otomatis, jangan diubah |
 
@@ -140,7 +155,7 @@ git push -u origin main
      untuk melihat format kolom.
    - Tab **Sesi**: buat sesi, mis. `Opname Gudang A — Sep 2026`.
 2. **Setiap penghitung (per device):**
-   - Buka link yang sama, masukkan kode akses.
+   - Buka **link penghitung** yang dibagikan admin. Tidak perlu kode.
    - Tab **Sesi**: isi **Nama device**, mis. `HP-01 Rak A`, klik **Simpan**.
      Sesi yang sedang berjalan otomatis dipakai.
    - Tab **Hitung**: scan barcode atau ketik SKU, isi Karton/Lusin/Pcs, tekan
@@ -197,7 +212,8 @@ lusin/pcs).
 ## Struktur file
 
 ```
-index.html                          halaman utama (login + 4 tab)
+index.html                          halaman admin (login + 4 tab)
+hitung.html                         halaman penghitung (link tanpa kode, tanpa stok DMS)
 assets/style.css                    tampilan
 assets/app.js                       logika scan, sinkron, rekap, import DMS, kamera
 assets/config.js                    URL Apps Script Anda (Langkah 4)
