@@ -611,8 +611,8 @@ const ALIAS = {
   bk: ['barcode_karton','barcode_ctn','barcode_dus','ean_karton','barcode_box'],
   n: ['nama','nama_barang','nama_produk','name','product_name','deskripsi','description','item_name','namabarang'],
   k: ['isi_karton','isi','pcs_per_karton','konversi','isi_ctn','pcs_karton','qty_per_karton','isi_dus','isi_per_karton'],
-  q: ['stok','stock','qty','stok_dms','saldo','stok_akhir','on_hand','qty_pcs','stok_pcs','total_pcs'],
-  qk: ['karton','ctn','stok_karton','dus'], ql: ['lusin','lsn','stok_lusin','dzn'], qp: ['pcs','stok_pcs_sisa','eceran']
+  q: ['stok','stock','qty','stok_dms','saldo','stok_akhir','on_hand','qty_pcs','total_pcs'],
+  qk: ['stok_karton','karton','ctn','dus'], ql: ['stok_lusin','lusin','lsn','dzn'], qp: ['stok_pcs','pcs','stok_pcs_sisa','eceran']
 };
 function parseDelimited(text){
   const first = text.split(/\r?\n/)[0] || '';
@@ -637,19 +637,22 @@ function parseDmsRows(rows, fileName, noStock){
   const col = {};
   for (const [key, names] of Object.entries(ALIAS)) { const i = head.findIndex(h => names.includes(h)); if (i >= 0) col[key] = i; }
   if (col.s == null) return {items: [], error: 'Kolom SKU tidak ditemukan. Header yang terbaca: ' + rows[0].join(', ')};
-  if (!noStock && col.q == null && col.qk == null && col.ql == null && col.qp == null) return {items: [], error: 'Kolom stok tidak ditemukan. Tambah kolom "stok" (dalam pcs).'};
-  const map = new Map(); let skipped = 0, dup = 0;
+  const split = col.qk != null || col.ql != null || col.qp != null;
+  if (!noStock && !split && col.q == null) return {items: [], error: 'Kolom stok tidak ditemukan. Tambah kolom stok_karton, stok_lusin, stok_pcs.'};
+  const map = new Map(); let skipped = 0, dup = 0, noIsi = 0;
   const cell = (r, k) => col[k] != null ? String(r[col[k]] ?? '').trim() : '';
   for (const r of rows.slice(1)) {
     const s = norm(cell(r, 's')); if (!s) { skipped++; continue; }
     const k = int(cell(r, 'k'));
-    const q = col.q != null ? int(cell(r, 'q')) : (int(cell(r, 'qk')) * k + int(cell(r, 'ql')) * 12 + int(cell(r, 'qp')));
-    const item = {s, n: cell(r, 'n') || s, k, q};
+    const qk = int(cell(r, 'qk')), ql = int(cell(r, 'ql')), qp = int(cell(r, 'qp'));
+    const q = split ? qk * k + ql * 12 + qp : int(cell(r, 'q'));
+    if (qk > 0 && !(k > 0)) noIsi++;
+    const item = {s, n: cell(r, 'n') || s, k, q, qk, ql, qp};
     if (cell(r, 'b')) item.b = cell(r, 'b');
     if (cell(r, 'bk')) item.bk = cell(r, 'bk');
-    if (map.has(s)) { map.get(s).q += q; dup++; } else map.set(s, item);
+    if (map.has(s)) { const m = map.get(s); m.q += q; m.qk += qk; m.ql += ql; m.qp += qp; dup++; } else map.set(s, item);
   }
-  return {items: [...map.values()], skipped, dup, fileName, found: Object.keys(col).map(k => head[col[k]])};
+  return {items: [...map.values()], skipped, dup, noIsi, split, fileName, found: Object.keys(col).map(k => head[col[k]])};
 }
 async function readDmsFile(f){
   try {
@@ -672,6 +675,7 @@ function renderDmsPreview(){
   box.innerHTML = `<div class="prevbox">
     <div><b>${fmt(p.items.length)} SKU</b> terbaca dari ${esc(p.fileName)} · total ${fmt(tot)} pcs</div>
     <div class="hint" style="margin:0">Kolom dipakai: <span class="mono">${esc(p.found.join(', '))}</span>${p.skipped ? ' · ' + fmt(p.skipped) + ' baris tanpa SKU dilewati' : ''}${p.dup ? ' · ' + fmt(p.dup) + ' SKU dobel dijumlahkan' : ''}</div>
+    ${p.noIsi ? `<div class="neg">${fmt(p.noIsi)} SKU punya stok karton tapi isi_karton kosong, karton itu dihitung 0 pcs. Isi kolom isi_karton dulu.</div>` : ''}
     ${S.confirmImport
       ? `<div class="confirm"><span>Ganti ${fmt(S.master.items.length)} SKU lama di Google Sheet dengan ${fmt(p.items.length)} SKU baru? Hitungan device tidak terhapus.</span><button class="btn sm danger" type="button" id="impYes">Ya, ganti</button><button class="btn sm" type="button" id="impNo">Batal</button></div>`
       : `<div class="row"><button class="btn primary" type="button" id="impBtn">Simpan ke Google Sheet</button><button class="btn" type="button" id="impNo">Batal</button></div>`}
@@ -681,7 +685,7 @@ async function importMaster(){
   const p = S.parsed; if (!p || !p.items.length) return;
   const btn = $('#impYes') || $('#impBtn'); if (btn) { btn.disabled = true; btn.textContent = 'Menyimpan…'; }
   try {
-    await API.post({action: 'importMaster', fileName: p.fileName, rows: p.items.map(i => [i.s, i.b || '', i.bk || '', i.n, i.k, i.q])});
+    await API.post({action: 'importMaster', fileName: p.fileName, rows: p.items.map(i => [i.s, i.b || '', i.bk || '', i.n, i.k, i.qk, i.ql, i.qp])});
     S.parsed = null; S.confirmImport = false; renderDmsPreview();
     await syncMaster(null, true);
   } catch(e){
@@ -852,9 +856,9 @@ on('#dmsPreview', 'click', e => {
 });
 on('#dmsReload', 'click', () => syncMaster(null, true));
 on('#tplBtn', 'click', () => saveXlsx('template-stok-dms.xlsx', [['Master_DMS', [
-  ['sku', 'barcode', 'barcode_karton', 'nama', 'isi_karton', 'stok'],
-  ['BRG-001', '8991234567001', '18991234567001', 'Contoh Barang A 250ml', 48, 1200],
-  ['BRG-002', '8991234567002', '', 'Contoh Barang B 1kg', 12, 300]], [12, 16, 16, 30, 10, 10]]]));
+  ['sku', 'barcode', 'barcode_karton', 'nama', 'isi_karton', 'stok_karton', 'stok_lusin', 'stok_pcs'],
+  ['BRG-001', '8991234567001', '18991234567001', 'Contoh Barang A 250ml', 48, 25, 0, 0],
+  ['BRG-002', '8991234567002', '', 'Contoh Barang B 1kg', 12, 25, 1, 0]], [12, 16, 16, 30, 10, 12, 12, 10]]]));
 on('#dmsSearch', 'input', e => { S.dmsSearch = e.target.value; S.dmsLimit = 200; renderDms(); });
 on('#dmsMore', 'click', () => { S.dmsLimit += 300; renderDms(); });
 

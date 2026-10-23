@@ -176,10 +176,13 @@ git push -u origin main
 | `barcode_karton` | tidak | barcode di karton; scan = +1 karton | barcode_ctn, barcode_dus |
 | `nama` | tidak | nama barang | nama_barang, deskripsi, item_name |
 | `isi_karton` | tidak | pcs per karton | isi, konversi, pcs_per_karton |
-| `stok` | ya* | stok DMS dalam **pcs** | stock, qty, saldo, stok_akhir |
+| `stok_karton` | ya* | jumlah karton di DMS | karton, ctn, dus |
+| `stok_lusin` | ya* | jumlah lusin (1 lusin = 12 pcs) | lusin, lsn |
+| `stok_pcs` | ya* | jumlah pcs eceran | pcs, eceran |
 
-*Kalau DMS mengekspor stok terpisah per satuan, pakai kolom `karton`, `lusin`,
-`pcs` sebagai pengganti `stok`. Total pcs dihitung otomatis.
+*Isi minimal salah satu dari tiga kolom stok; yang kosong dianggap 0. Total pcs
+dihitung otomatis: karton x `isi_karton` + lusin x 12 + pcs. File lama dengan satu
+kolom `stok` (dalam pcs) tetap bisa diimpor.
 
 Kalau `isi_karton` kosong, barang itu tidak bisa dihitung per karton (hanya
 lusin/pcs).

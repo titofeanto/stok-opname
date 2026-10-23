@@ -11,7 +11,7 @@
  *
  * Tab:
  *   Config      key/value: kode_akses (admin), kode_hitung (link penghitung), nama_gudang, master_*
- *   Master_DMS  stok terakhir dari DMS (sku, barcode, barcode_karton, nama, isi_karton, stok)
+ *   Master_DMS  stok terakhir dari DMS (sku, barcode, barcode_karton, nama, isi_karton, stok_karton, stok_lusin, stok_pcs)
  *   Sesi        daftar sesi opname
  *   Hitung      satu baris per sesi + device + SKU, nilai terakhir (karton, lusin, pcs)
  *   Log         riwayat setiap scan/koreksi per device (audit)
@@ -19,7 +19,7 @@
 
 const SH = { CONFIG: 'Config', MASTER: 'Master_DMS', SESI: 'Sesi', HITUNG: 'Hitung', LOG: 'Log' };
 const HEAD = {
-  Master_DMS: ['sku', 'barcode', 'barcode_karton', 'nama', 'isi_karton', 'stok'],
+  Master_DMS: ['sku', 'barcode', 'barcode_karton', 'nama', 'isi_karton', 'stok_karton', 'stok_lusin', 'stok_pcs'],
   Sesi: ['sesi_id', 'nama', 'status', 'dibuat', 'dibuat_oleh'],
   Hitung: ['sesi_id', 'device_id', 'device_nama', 'sku', 'karton', 'lusin', 'pcs', 'updated_at'],
   Log: ['log_id', 'waktu', 'sesi_id', 'device_id', 'device_nama', 'sku', 'karton', 'lusin', 'pcs', 'aksi'],
@@ -288,8 +288,8 @@ function importMaster_(ss, p) {
   sh.clearContents();
   sh.getRange('A:C').setNumberFormat('@');
   const data = [HEAD.Master_DMS].concat(rows.map(r => [
-    String(r[0] || ''), String(r[1] || ''), String(r[2] || ''), String(r[3] || ''), toInt_(r[4]), toInt_(r[5])]));
-  sh.getRange(1, 1, data.length, 6).setValues(data);
+    String(r[0] || ''), String(r[1] || ''), String(r[2] || ''), String(r[3] || ''), toInt_(r[4]), toInt_(r[5]), toInt_(r[6]), toInt_(r[7])]));
+  sh.getRange(1, 1, data.length, HEAD.Master_DMS.length).setValues(data);
   const nowIso = new Date().toISOString();
   setConfig_(ss, 'master_versi', nowIso);
   setConfig_(ss, 'master_file', String(p.fileName || 'upload web'));
