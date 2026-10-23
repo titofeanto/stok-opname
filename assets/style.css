@@ -16,7 +16,7 @@
   }
 }
 *{box-sizing:border-box}
-html,body{margin:0}
+html,body{margin:0;overscroll-behavior-y:contain}
 body{background:var(--bg);color:var(--ink);font-family:var(--body);font-size:15px;line-height:1.45;-webkit-text-size-adjust:100%}
 [hidden]{display:none!important}
 button,input,textarea,select{font:inherit;color:inherit}

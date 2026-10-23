@@ -111,7 +111,7 @@ async function login(code, silent){
       LS.del(K('so-code')); showLogin();
     }
     else if (e.code === 'no_access_code') $('#loginErr').textContent = 'Kode akses belum diisi di tab Config Google Sheet.';
-    else if (silent && S.code && LS.json(K('so-master'))) { S.online = false; showApp(); showBanner('Offline. Hitungan disimpan di device ini dan dikirim otomatis saat sinyal kembali.'); }
+    else if (silent && S.code) { S.online = false; showApp(); showBanner('Belum tersambung ke server. Hitungan disimpan di device ini dan dikirim otomatis saat sinyal kembali.'); }
     else $('#loginErr').textContent = 'Tidak bisa terhubung ke Apps Script. Cek internet atau URL di config.js. (' + e.message + ')';
   } finally {
     btn.disabled = false; btn.textContent = 'Masuk';
@@ -131,7 +131,7 @@ let started = false;
 function showApp(){
   $('#loginScreen').hidden = true; $('#appScreen').hidden = false;
   if (!S.master.items.length) { const c = LS.json(K('so-master')); if (c) setMaster(c.meta, c.items); }
-  if (!S.local && S.sessionId) selectSession(S.sessionId);
+  if (!S.local) selectSession(S.sessionId);
   setTab(TABS.includes(LS.get(K('so-tab'))) ? LS.get(K('so-tab')) : 'hitung');
   if (!started) { started = true; setInterval(tick, 20000); }
   pushAll();
@@ -888,6 +888,23 @@ on('#logoutBtn', 'click', () => logout(false));
 document.addEventListener('keydown', e => { if (e.key === 'Escape' && Cam.active) closeCam(); });
 
 /* ================= start ================= */
-if (S.code) { $('#codeInput').value = S.code; login(S.code, true); }
+// Sudah punya kode (link penghitung atau login sebelumnya): langsung buka aplikasi dari data
+// tersimpan, tanpa layar login. Login ke server jalan di belakang; layar login baru muncul
+// kalau server menolak kodenya.
+if (S.code) { $('#codeInput').value = S.code; showApp(); login(S.code, true); }
 else $('#codeInput').focus();
+
+/* ================= tombol kembali ================= */
+// Tombol kembali minta konfirmasi dulu, supaya tidak keluar tanpa sengaja dan login ulang.
+// Entri riwayat penjaga dipasang lagi di tiap sentuhan, karena Chrome melewati entri yang
+// ditambahkan tanpa interaksi pengguna.
+let leaving = false;
+function ensureBackGuard(){ if (!(history.state && history.state.so)) history.pushState({so: 1}, ''); }
+ensureBackGuard();
+document.addEventListener('pointerdown', ensureBackGuard, {passive: true});
+window.addEventListener('popstate', () => {
+  if (leaving) return;
+  if (confirm('Keluar dari halaman ini?\nHitungan yang belum terkirim tetap tersimpan di device ini.')) { leaving = true; history.back(); }
+  else ensureBackGuard();
+});
 })();
