@@ -238,3 +238,10 @@ details textarea{margin-top:8px}
   .top .mark{display:none}
   .devchip{max-width:34vw}
 }
+
+/* skeleton: blok berkilau seukuran konten yang sedang dimuat */
+.skel{display:block;height:12px;border-radius:5px;background:var(--surface-2);background-image:linear-gradient(90deg,var(--surface-2) 30%,var(--line) 50%,var(--surface-2) 70%);background-size:300% 100%}
+.tile .skel{margin-top:8px}
+.skel-list{display:grid;gap:14px;padding:6px 0}
+.skel-list>div{display:grid;gap:7px}
+@media (prefers-reduced-motion:no-preference){.skel{animation:skel 1.3s ease-in-out infinite}@keyframes skel{from{background-position:100% 0}to{background-position:0 0}}}

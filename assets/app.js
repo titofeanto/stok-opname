@@ -171,7 +171,7 @@ function selectSession(sid){
   S.dirty = (sid && LS.json('so-dirty-' + sid)) || {};
   S.plog = (sid && LS.json('so-plog-' + sid)) || [];
   S.ready = !!local;
-  S.remote = []; S.remoteAt = null; S.remoteSid = sid;
+  S.remote = []; S.remoteAt = null; S.remoteSid = sid; S.rkLoading = !!sid;
   renderAll();
   if (sid) fetchRekap();
 }
@@ -191,7 +191,7 @@ async function fetchRekap(){
   try {
     const d = await API.get(MODE === 'hitung' ? {action: 'myRows', sesi: sid, device_id: S.deviceId} : {action: 'rekap', sesi: sid});
     if (S.sessionId !== sid) return;
-    S.online = true;
+    S.online = true; S.rkLoading = false;
     S.remote = d.rows || []; S.remoteAt = d.serverTime || now(); S.remoteSid = sid;
     if (!S.ready) {
       // Device ini belum punya data lokal untuk sesi ini: ambil hitungannya dari Sheet dulu,
@@ -204,7 +204,8 @@ async function fetchRekap(){
   } catch(e){
     if (netFail(e)) S.online = false;
     if (e.code === 'invalid_code') return logout(true);
-    renderSync(); renderHitung();
+    S.rkLoading = false;
+    renderSync(); renderHitung(); if (S.tab === 'rekap') renderRekap();
   }
 }
 
@@ -459,6 +460,11 @@ function renderHitung(){
   renderHitungLists();
 }
 function renderHitungLists(){
+  if (!S.ready && curSession()) { // hitungan device ini masih diambil dari Sheet
+    $('#logList').innerHTML = `<li aria-hidden="true" style="display:block">${skList(3)}</li>`;
+    $('#myList').innerHTML = skList(4); $('#myCount').textContent = '';
+    return;
+  }
   const local = S.local || {items: {}, log: []};
   const log = local.log.filter(e => e.aksi === 'tambah');
   $('#logList').innerHTML = log.length ? log.slice(0, 12).map((e, i) => {
@@ -529,7 +535,21 @@ const STATUS_LABEL = {sesuai: 'Sesuai', kurang: 'Kurang', lebih: 'Lebih', belum:
 const FILTERS = [['semua', 'Semua'], ['selisih', 'Selisih'], ['sesuai', 'Sesuai'], ['belum', 'Belum dihitung'], ['luar', 'Di luar DMS']];
 const ORDER = {kurang: 0, lebih: 0, luar: 1, belum: 2, sesuai: 3};
 
+/* Skeleton: blok berkilau seukuran konten yang belum datang dari Google Sheet. */
+const sk = (w, h) => `<i class="skel" style="width:${w}${h ? ';height:' + h : ''}"></i>`;
+const skList = n => `<div class="skel-list" aria-hidden="true">${Array.from({length: n}, (_, i) => `<div>${sk(['72%', '58%', '66%', '50%'][i % 4], '13px')}${sk(['40%', '34%', '46%', '30%'][i % 4])}</div>`).join('')}</div>`;
+
 function renderRekap(){
+  if (S.rkLoading && !S.remoteAt) {
+    $('#rkUpdated').textContent = 'Memuat data semua device…';
+    $('#tiles').innerHTML = ['Progres', 'Sesuai', 'Selisih', 'Belum dihitung'].map(k => `<div class="tile" aria-hidden="true"><div class="k">${k}</div>${sk('48%', '34px')}${sk('80%')}</div>`).join('');
+    $('#devCnt').textContent = '';
+    $('#devList').innerHTML = skList(2);
+    $('#rkFilter').innerHTML = ''; $('#rkFilter').hidden = true;
+    $('#rkTable').innerHTML = `<tbody><tr><td>${skList(6)}</td></tr></tbody>`;
+    $('#rkMore').hidden = true;
+    return;
+  }
   const {devs, rows} = computeRecap();
   const c = {sesuai: 0, kurang: 0, lebih: 0, belum: 0, luar: 0}; let minus = 0, plus = 0;
   rows.forEach(r => { c[r.status]++; if (r.status === 'kurang') minus += r.diff; if (r.status === 'lebih') plus += r.diff; });
@@ -556,6 +576,7 @@ function renderRekap(){
   if (q) list = list.filter(r => norm(r.sku).includes(q) || norm(r.name).includes(q) || norm(r.b).includes(q));
   list.sort((a, b) => (ORDER[a.status] - ORDER[b.status]) || (Math.abs(b.diff) - Math.abs(a.diff)) || a.sku.localeCompare(b.sku));
   const cnt = {semua: rows.length, selisih: c.kurang + c.lebih, sesuai: c.sesuai, belum: c.belum, luar: c.luar};
+  $('#rkFilter').hidden = false;
   $('#rkFilter').innerHTML = FILTERS.map(([k, l]) => `<button type="button" data-f="${k}" aria-pressed="${f === k}">${l} (${fmt(cnt[k])})</button>`).join('');
 
   const shown = list.slice(0, S.rkLimit);
@@ -730,7 +751,7 @@ function renderSesi(){
 function counterUrl(){ return new URL('hitung.html?k=' + encodeURIComponent(S.kodeHitung), location.href).toString(); }
 function renderCounterLink(){
   const box = $('#counterLink'); if (!box) return;
-  if (!S.kodeHitung) { box.innerHTML = '<div class="empty">Memuat…</div>'; return; }
+  if (!S.kodeHitung) { box.innerHTML = sk('100%', '40px') + `<div class="row" style="margin-top:10px">${sk('104px', '40px')}${sk('104px', '40px')}</div>`; return; }
   box.innerHTML = `<div class="linkbox mono" id="counterUrl">${esc(counterUrl())}</div>
     <div class="row" style="margin-top:10px">
       <button class="btn primary" type="button" id="copyCounter">Salin link</button>
