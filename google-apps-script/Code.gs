@@ -13,7 +13,8 @@
  *   Config      key/value: kode_akses (admin), kode_hitung (link penghitung), nama_gudang, master_*
  *   Master_DMS  stok terakhir dari DMS (sku, barcode, barcode_karton, nama, isi_karton, stok_karton, stok_lusin, stok_pcs)
  *   Sesi        daftar sesi opname
- *   Hitung      satu baris per sesi + device + SKU, nilai terakhir (karton, lusin, pcs)
+ *   Hitung      satu baris per sesi + device + SKU + kondisi, nilai terakhir (karton, lusin, pcs).
+ *               kondisi kosong = Good Stock, 'rusak' = Bad Stock. Di sisi web, Bad Stock ditulis sebagai kunci "SKU#B".
  *   Log         riwayat setiap scan/koreksi per device (audit)
  */
 
@@ -21,11 +22,27 @@ const SH = { CONFIG: 'Config', MASTER: 'Master_DMS', SESI: 'Sesi', HITUNG: 'Hitu
 const HEAD = {
   Master_DMS: ['sku', 'barcode', 'barcode_karton', 'nama', 'isi_karton', 'stok_karton', 'stok_lusin', 'stok_pcs'],
   Sesi: ['sesi_id', 'nama', 'status', 'dibuat', 'dibuat_oleh'],
-  Hitung: ['sesi_id', 'device_id', 'device_nama', 'sku', 'karton', 'lusin', 'pcs', 'updated_at'],
-  Log: ['log_id', 'waktu', 'sesi_id', 'device_id', 'device_nama', 'sku', 'karton', 'lusin', 'pcs', 'aksi'],
+  Hitung: ['sesi_id', 'device_id', 'device_nama', 'sku', 'karton', 'lusin', 'pcs', 'updated_at', 'kondisi'],
+  Log: ['log_id', 'waktu', 'sesi_id', 'device_id', 'device_nama', 'sku', 'karton', 'lusin', 'pcs', 'aksi', 'kondisi'],
 };
 
-function doGet(e) { return handle_((e && e.parameter) || {}); }
+function doGet(e) {
+  const p = (e && e.parameter) || {};
+  if (p.action) return handle_(p);
+  return page_(p);
+}
+
+// Menyajikan halaman web (Admin.html atau Hitung.html) dari Apps Script ini. Dibuat oleh build-apps-script.js.
+function page_(p) {
+  const hitung = p.page === "hitung";
+  const t = HtmlService.createTemplateFromFile(hitung ? "Hitung" : "Admin");
+  t.url = ScriptApp.getService().getUrl();
+  t.k = String(p.k || "").replace(/[^A-Za-z0-9_-]/g, "").slice(0, 64);
+  return t.evaluate()
+    .setTitle(hitung ? "Hitung Stok" : "Stok Opname")
+    .addMetaTag("viewport", "width=device-width, initial-scale=1, viewport-fit=cover")
+    .setXFrameOptionsMode(HtmlService.XFrameOptionsMode.ALLOWALL);
+}
 
 function doPost(e) {
   let body = {};
@@ -111,6 +128,10 @@ function ensureSheets_(ss) {
       if (name === SH.MASTER) sh.getRange('A:C').setNumberFormat('@');
       if (name === SH.HITUNG) sh.getRange('A:D').setNumberFormat('@');
       if (name === SH.LOG) sh.getRange('A:F').setNumberFormat('@');
+    } else if (name === SH.HITUNG || name === SH.LOG) {
+      // Sheet lama: tambahkan kolom kondisi di header kalau belum ada.
+      const h = HEAD[name];
+      if (String(sh.getRange(1, h.length).getValue() || '') === '') sh.getRange(1, h.length).setValue('kondisi').setFontWeight('bold');
     }
   });
 }
@@ -150,7 +171,11 @@ function masterForCounter_(values) {
   const head = values[0].map(h => String(h).trim().toLowerCase().replace(/[^a-z0-9]+/g, '_').replace(/^_|_$/g, ''));
   const keys = Object.keys(COUNTER_COLS);
   const idx = keys.map(k => head.findIndex(h => COUNTER_COLS[k].indexOf(h) >= 0));
-  return [keys].concat(values.slice(1).map(r => idx.map(i => (i >= 0 ? r[i] : ''))));
+  // Hanya penanda 1/0 (ada stok atau tidak), tanpa jumlah, untuk ikon di daftar pilihan SKU.
+  const sIdx = ['stok_karton', 'stok_lusin', 'stok_pcs'].map(n => head.indexOf(n)).filter(i => i >= 0);
+  const num = v => parseInt(String(v == null ? '' : v).replace(/[^\d-]/g, ''), 10) || 0;
+  return [keys.concat('ada_stok')].concat(values.slice(1).map(r =>
+    idx.map(i => (i >= 0 ? r[i] : '')).concat(sIdx.some(i => num(r[i]) > 0) ? '1' : '0')));
 }
 
 function masterMeta_(cfg) {
@@ -213,7 +238,7 @@ function readHitung_(ss, sesi) {
   for (let i = 1; i < v.length; i++) {
     const r = v[i];
     if (String(r[0]) !== sesi) continue;
-    out.push([String(r[1]), String(r[2]), String(r[3]), Number(r[4]) || 0, Number(r[5]) || 0, Number(r[6]) || 0,
+    out.push([String(r[1]), String(r[2]), String(r[3]) + (String(r[8] || '') === 'rusak' ? '#B' : ''), Number(r[4]) || 0, Number(r[5]) || 0, Number(r[6]) || 0,
       r[7] instanceof Date ? r[7].toISOString() : String(r[7] || '')]);
   }
   return out;
@@ -236,14 +261,16 @@ function push_(ss, p) {
   const v = sh.getDataRange().getValues();
   const idx = {};
   for (let i = 1; i < v.length; i++) {
-    if (String(v[i][0]) === sesi && String(v[i][1]) === dev) idx[String(v[i][3])] = i;
+    if (String(v[i][0]) === sesi && String(v[i][1]) === dev) idx[String(v[i][3]) + (String(v[i][8] || '') === 'rusak' ? '#B' : '')] = i;
   }
   const changed = [], appended = [];
   items.forEach(it => {
-    const sku = String(it.sku || '').trim();
+    const key = String(it.sku || '').trim();
+    if (!key) return;
+    const bad = /#B$/.test(key), sku = bad ? key.slice(0, -2) : key;
     if (!sku) return;
-    const row = [sesi, dev, devName, sku, toInt_(it.k), toInt_(it.l), toInt_(it.p), String(it.at || new Date().toISOString())];
-    if (idx[sku] != null) { v[idx[sku]] = row; changed.push(idx[sku]); }
+    const row = [sesi, dev, devName, sku, toInt_(it.k), toInt_(it.l), toInt_(it.p), String(it.at || new Date().toISOString()), bad ? 'rusak' : ''];
+    if (idx[key] != null) { v[idx[key]] = row; changed.push(idx[key]); }
     else appended.push(row);
   });
   // Nama device ikut diperbarui di semua baris device ini.
@@ -253,19 +280,21 @@ function push_(ss, p) {
   });
 
   if (changed.length > 25) {
-    sh.getRange(1, 1, v.length, 8).setValues(v.map(r => r.slice(0, 8)));
+    sh.getRange(1, 1, v.length, 9).setValues(v.map(r => r.slice(0, 9)));
   } else {
-    changed.forEach(i => sh.getRange(i + 1, 1, 1, 8).setValues([v[i].slice(0, 8)]));
+    changed.forEach(i => sh.getRange(i + 1, 1, 1, 9).setValues([v[i].slice(0, 9)]));
   }
-  if (appended.length) sh.getRange(sh.getLastRow() + 1, 1, appended.length, 8).setValues(appended);
+  if (appended.length) sh.getRange(sh.getLastRow() + 1, 1, appended.length, 9).setValues(appended);
 
   // Log: lewati id yang sudah pernah diterima (kiriman ulang saat sinyal putus).
   const logs = Array.isArray(p.log) ? p.log.slice(0, 500) : [];
   if (logs.length) {
     const cache = CacheService.getScriptCache();
     const seen = cache.getAll(logs.map(l => 'log_' + l.id));
-    const rows = logs.filter(l => l.id && !seen['log_' + l.id]).map(l =>
-      [String(l.id), String(l.at || ''), sesi, dev, devName, String(l.sku || ''), toInt_(l.k), toInt_(l.l), toInt_(l.p), String(l.aksi || '')]);
+    const rows = logs.filter(l => l.id && !seen['log_' + l.id]).map(l => {
+      const key = String(l.sku || ''), bad = /#B$/.test(key);
+      return [String(l.id), String(l.at || ''), sesi, dev, devName, bad ? key.slice(0, -2) : key, toInt_(l.k), toInt_(l.l), toInt_(l.p), String(l.aksi || ''), bad ? 'rusak' : ''];
+    });
     if (rows.length) {
       const lg = ss.getSheetByName(SH.LOG);
       lg.getRange(lg.getLastRow() + 1, 1, rows.length, rows[0].length).setValues(rows);

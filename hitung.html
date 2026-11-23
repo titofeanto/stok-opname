@@ -4,13 +4,13 @@
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
 <meta name="color-scheme" content="light dark">
-<meta name="theme-color" content="#1A1F1C">
+<meta name="theme-color" content="#1769C8">
 <meta name="robots" content="noindex">
 <title>Hitung Stok Gudang</title>
 <link rel="preconnect" href="https://fonts.googleapis.com">
 <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
-<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Barlow+Condensed:wght@600;700&family=IBM+Plex+Mono:wght@500&family=IBM+Plex+Sans:wght@400;500;600&display=swap">
-<link rel="stylesheet" href="assets/style.css?v=6">
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700;800&display=swap">
+<link rel="stylesheet" href="assets/style.css?v=63">
 </head>
 <body data-mode="hitung">
 
@@ -20,7 +20,7 @@
     <span class="mark big" aria-hidden="true">SO</span>
     <h1>Hitung Stok</h1>
     <p>Buka halaman ini dari link penghitung yang dibagikan admin.</p>
-    <label class="lbl" for="codeInput">Kode penghitung</label>
+    <label class="lbl" for="codeInput">Kode penghitung <span class="req">*</span></label>
     <input type="text" id="codeInput" autocomplete="off" autocapitalize="characters" placeholder="mis. HITUNG-XXXXXXXX">
     <button type="submit" class="btn primary wide" id="loginBtn">Masuk</button>
     <div class="err" id="loginErr" role="alert"></div>
@@ -30,38 +30,64 @@
 <!-- APP -->
 <div id="appScreen" hidden>
   <header class="top">
-    <div class="brand">
-      <span class="mark" aria-hidden="true">SO</span>
-      <div><div class="brand-t" id="brandT">Hitung Stok</div><div class="brand-s" id="hdrSession">Memuat…</div></div>
+    <div class="top-row">
+      <div class="brand">
+        <span class="mark" aria-hidden="true">SO</span>
+        <div><div class="brand-t" id="brandT">Hitung Stok</div><div class="brand-s" id="hdrGudang">Gudang</div></div>
+      </div>
+      <button class="hdr-btn" id="refreshBtn" type="button" aria-label="Muat ulang data"><svg viewBox="0 0 24 24" aria-hidden="true"><path d="M21 12a9 9 0 1 1-3-6.7"/><path d="M21 4v5h-5"/></svg></button>
     </div>
-    <span class="sync" id="sync"></span>
-    <button class="devchip" id="devChip" type="button">Atur nama device</button>
+    <div class="greet">
+      <div class="greet-l">
+        <div class="greet-hi">Halo, selamat menghitung</div>
+        <button class="devchip" id="devChip" type="button">Atur nama device</button>
+      </div>
+      <div class="greet-r">
+        <button class="sess-note" id="sessLink" type="button" aria-label="Lihat daftar sesi" title="Lihat daftar sesi"><svg viewBox="0 0 24 24" aria-hidden="true"><rect x="5" y="4" width="14" height="17" rx="2"/><path d="M9 4h6v3H9zM9 12h6M9 16h4"/></svg><span id="hdrSession">Memuat…</span><svg class="chev" viewBox="0 0 24 24" aria-hidden="true"><path d="M9 6l6 6-6 6"/></svg></button>
+        <div class="sync-wrap"><span class="sync" id="sync"></span><button class="sync-info" id="syncInfo" type="button" aria-label="Arti warna status sinkron">i</button></div>
+        <div class="sync-pop" id="syncPop" hidden>
+          <div class="ok"><i></i><span><b>Tersinkron.</b> Semua hitungan sudah masuk ke Sheet.</span></div>
+          <div class="wait"><i></i><span><b>Mengirim.</b> Ada hitungan yang belum terkirim, dikirim otomatis.</span></div>
+          <div class="off"><i></i><span><b>Offline atau tertahan.</b> Hitungan aman di HP ini. Dikirim saat sinyal kembali, atau setelah sesi yang ditutup dibuka lagi.</span></div>
+        </div>
+      </div>
+    </div>
   </header>
   <div class="banner" id="banner" hidden></div>
 
   <nav class="tabs" id="tabs" role="tablist">
-    <button role="tab" data-tab="hitung" aria-selected="true">Hitung</button>
-    <button role="tab" data-tab="sesi" aria-selected="false">Device &amp; sesi</button>
+    <button role="tab" data-tab="hitung" aria-selected="true"><svg class="i" viewBox="0 0 24 24" aria-hidden="true"><path d="M4 8V6a2 2 0 0 1 2-2h2M16 4h2a2 2 0 0 1 2 2v2M20 16v2a2 2 0 0 1-2 2h-2M8 20H6a2 2 0 0 1-2-2v-2M7 12h10"/></svg><span>Hitung</span></button>
+    <button role="tab" data-tab="hasil" aria-selected="false"><svg class="i" viewBox="0 0 24 24" aria-hidden="true"><path d="M9 6h11M9 12h11M9 18h11M4 6l1 1 2-2M4 12l1 1 2-2M4 18l1 1 2-2"/></svg><span>Hasil</span></button>
+    <button role="tab" data-tab="sesi" aria-selected="false"><svg class="i" viewBox="0 0 24 24" aria-hidden="true"><rect x="5" y="4" width="14" height="17" rx="2"/><path d="M9 4h6v3H9zM9 12h6M9 16h4"/></svg><span>Device &amp; sesi</span></button>
+    <button class="fab" id="fabCam" type="button" aria-label="Scan pakai kamera"><svg class="i" viewBox="0 0 24 24" aria-hidden="true"><path d="M4 8h3l2-3h6l2 3h3v11H4z"/><circle cx="12" cy="13" r="3.5"/></svg></button>
   </nav>
 
   <main>
     <!-- HITUNG -->
     <section class="tab" id="tab-hitung">
       <div id="hitungNotice"></div>
-      <div class="panel">
-        <label class="lbl" for="scanInput">Scan barcode atau ketik SKU</label>
+      <div class="panel scan">
+        <div class="scan-h"><span class="ci"><svg viewBox="0 0 24 24" aria-hidden="true"><path d="M4 8V6a2 2 0 0 1 2-2h2M16 4h2a2 2 0 0 1 2 2v2M20 16v2a2 2 0 0 1-2 2h-2M8 20H6a2 2 0 0 1-2-2v-2M7 12h10"/></svg></span><div><div class="scan-t">Scan barang</div><div class="scan-s">Barcode, kode SKU, atau nama barang</div></div></div>
         <div class="scanrow">
-          <input type="text" id="scanInput" autocomplete="off" autocapitalize="characters" spellcheck="false" enterkeyhint="search" placeholder="Barcode / SKU">
-          <button class="btn" id="camBtn" type="button" aria-label="Scan pakai kamera">Kamera</button>
-          <button class="btn" id="scanBtn" type="button">Cari</button>
+          <div class="scanbox">
+            <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M4 6v12M7.5 6v12M11 6v12M14.5 6v12M18 6v12M21 6v12"/></svg>
+            <input type="text" id="scanInput" aria-label="Scan atau ketik barcode, kode SKU, atau nama barang" autocomplete="off" autocapitalize="characters" spellcheck="false" enterkeyhint="search" placeholder="Barcode, SKU, nama">
+            <button class="go" id="scanBtn" type="button" aria-label="Cari" title="Cari"><svg viewBox="0 0 24 24" aria-hidden="true"><circle cx="11" cy="11" r="7"/><path d="M20 20l-3.5-3.5"/></svg></button>
+          </div>
+          <button class="camfab" id="camBtn" type="button" aria-label="Scan pakai kamera" title="Scan pakai kamera"><svg viewBox="0 0 24 24" aria-hidden="true"><path d="M4 8h3l2-3h6l2 3h3v11H4z"/><circle cx="12" cy="13" r="3.5"/></svg></button>
         </div>
         <div class="quick">
-          <label class="switch"><input type="checkbox" id="quickOn"> <span>Scan langsung tambah</span></label>
+          <label class="switch"><span><b>Scan langsung tambah</b><small>Tiap scan langsung +1, tanpa mengisi jumlah</small></span><input type="checkbox" id="quickOn"><i class="sw" aria-hidden="true"></i></label>
           <div class="seg off" id="quickUnit" role="group" aria-label="Satuan scan cepat">
             <button type="button" data-u="p" aria-pressed="true">+1 Pcs</button>
             <button type="button" data-u="l" aria-pressed="false">+1 Lusin</button>
             <button type="button" data-u="k" aria-pressed="false">+1 Karton</button>
           </div>
+          <div class="cond-seg off" id="quickCond" role="group" aria-label="Kondisi stok scan cepat">
+            <button type="button" data-c="g" aria-pressed="false"><b>Stok Baik</b><small>Good Stock</small></button>
+            <button type="button" data-c="b" aria-pressed="false"><b>Stok Rusak</b><small>Bad Stock</small></button>
+          </div>
+          <div class="cond-hint off" id="quickCondHint">Pilih kondisi stok dulu. Tanpa pilihan, scan akan membuka kartu barang.</div>
         </div>
         <div class="suggest" id="suggest" hidden></div>
         <div class="scanmsg" id="scanMsg" hidden></div>
@@ -76,10 +102,21 @@
           </div>
           <button class="x" id="pcClose" type="button" aria-label="Tutup">×</button>
         </div>
+        <div class="q-isi" id="qIWrap" hidden>
+          <div class="qi-h"><label for="qI">Isi per karton (pcs)</label><span class="opt">Opsional</span><span class="reqchip">Wajib <i>*</i></span></div>
+          <input type="text" id="qI" inputmode="numeric" maxlength="6" autocomplete="off" placeholder="mis. 12">
+          <small>Isi kalau Anda tahu, supaya pcs otomatis menjadi karton dan diingat untuk barang ini. Wajib diisi kalau Anda mengisi Karton.</small>
+        </div>
+        <div class="qty-h">Kondisi stok <span class="req">*</span><small>wajib dipilih</small></div>
+        <div class="cond-seg" id="condSeg" role="group" aria-label="Kondisi stok">
+          <button type="button" data-c="g" aria-pressed="false"><b>Stok Baik</b><small>Good Stock</small></button>
+          <button type="button" data-c="b" aria-pressed="false"><b>Stok Rusak</b><small>Bad Stock</small></button>
+        </div>
+        <div class="qty-h">Jumlah <span class="req">*</span><small>isi minimal satu</small></div>
         <div class="qty">
-          <div class="q"><label for="qK">Karton</label><input type="number" id="qK" inputmode="numeric" min="0" placeholder="0"><small id="qKh">isi belum ada</small></div>
-          <div class="q"><label for="qL">Lusin</label><input type="number" id="qL" inputmode="numeric" min="0" placeholder="0"><small>12 pcs</small></div>
-          <div class="q"><label for="qP">Pcs</label><input type="number" id="qP" inputmode="numeric" min="0" placeholder="0"><small>satuan</small></div>
+          <div class="q"><label for="qK">Karton</label><input type="text" id="qK" inputmode="numeric" maxlength="6" autocomplete="off" placeholder="0"><small id="qKh">isi belum ada</small></div>
+          <div class="q"><label for="qL">Lusin</label><input type="text" id="qL" inputmode="numeric" maxlength="6" autocomplete="off" placeholder="0"><small>12 pcs</small></div>
+          <div class="q"><label for="qP">Pcs</label><input type="text" id="qP" inputmode="numeric" maxlength="6" autocomplete="off" placeholder="0"><small>satuan</small></div>
         </div>
         <div class="prod-f">
           <span class="preview" id="pcPreview"></span>
@@ -88,34 +125,71 @@
         <div class="prod-mine" id="pcMine"></div>
       </div>
 
-      <div class="grid2">
-        <div class="panel">
-          <h3>Scan terakhir <span class="cnt">device ini</span></h3>
-          <ol class="log" id="logList"></ol>
+      <div class="panel">
+        <h3><span class="ci"><svg viewBox="0 0 24 24" aria-hidden="true"><circle cx="12" cy="12" r="9"/><path d="M12 7v5l3 2"/></svg></span>Riwayat scan <span class="cnt">device ini</span></h3>
+        <div class="tb" id="logTb" hidden>
+          <label class="sbox"><svg viewBox="0 0 24 24" aria-hidden="true"><circle cx="11" cy="11" r="7"/><path d="M20 20l-3.5-3.5"/></svg><input type="search" id="logQ" placeholder="Cari kode SKU, barcode, atau nama" autocomplete="off" enterkeyhint="search" aria-label="Cari di riwayat scan"><button type="button" class="clr" id="logClr" aria-label="Hapus pencarian" hidden><svg viewBox="0 0 24 24" aria-hidden="true"><path d="M6 6l12 12M18 6L6 18"/></svg></button></label>
+          <div class="chips" id="logChips" role="group" aria-label="Filter"></div>
+          <div class="tb-meta"><label class="sortsel"><span>Urutkan</span><select id="logSort" aria-label="Urutkan"><option value="baru">Terbaru</option><option value="lama">Terlama</option><option value="nama">Nama A–Z</option><option value="sku">Kode SKU</option></select></label><span class="tb-r"><span id="logMeta"></span><button type="button" class="rst" id="logRst" data-reset="log" hidden><svg viewBox="0 0 24 24" aria-hidden="true"><path d="M3 12a9 9 0 1 0 3-6.7"/><path d="M3 4v5h5"/></svg>Reset</button></span></div>
         </div>
-        <div class="panel">
-          <h3>Hitungan device ini <span class="cnt" id="myCount"></span></h3>
-          <div class="mylist" id="myList"></div>
+        <ol class="log" id="logList"></ol>
+        <button class="btn more" id="logMore" type="button" hidden></button>
+      </div>
+    </section>
+
+    <!-- HITUNGAN (akumulasi per barang di device ini) -->
+    <section class="tab" id="tab-hasil" hidden>
+      <div class="hero" id="heroCard">
+        <div class="hero-h"><span class="hero-ico"><svg viewBox="0 0 24 24" aria-hidden="true"><path d="M21 8l-9-5-9 5 9 5 9-5zM3 8v8l9 5 9-5V8M12 13v8"/></svg></span><span class="hero-k">Progres hitungan</span><span class="hero-v"><b id="heroDone">0</b><small id="heroOf">SKU dihitung</small></span></div>
+        <div class="hero-units">
+          <div><b id="heroK">0</b><span>Karton</span></div>
+          <div><b id="heroL">0</b><span>Lusin</span></div>
+          <div><b id="heroP">0</b><span>Pcs</span></div>
         </div>
+        <div id="statCard" hidden>
+          <div class="dms-row">
+            <div class="d"><span class="si ok" aria-hidden="true"><svg viewBox="0 0 24 24" aria-hidden="true"><path d="M5 12.5l4.5 4.5L19 7.5"/></svg></span><span><b id="heroIn">0</b> SKU ada di DMS</span></div>
+            <div class="d"><span class="si warn" aria-hidden="true"><svg viewBox="0 0 24 24" aria-hidden="true"><path d="M12 4l9 16H3L12 4z"/><path d="M12 10v4M12 17h.01"/></svg></span><span><b id="heroOut">0</b> SKU di luar DMS</span></div>
+          </div>
+          <div class="bar"><i id="statBar"></i></div>
+          <div class="bar-meta"><span>Belum dihitung <b id="statLeft">0</b> SKU</span><b class="pct" id="statPct">0%</b></div>
+        </div>
+      </div>
+      <div class="panel">
+        <h3><span class="ci"><svg viewBox="0 0 24 24" aria-hidden="true"><path d="M9 6h11M9 12h11M9 18h11M4 6h.01M4 12h.01M4 18h.01"/></svg></span>Hitungan device ini <span class="cnt" id="myCount"></span></h3>
+        <div class="tb" id="myTb" hidden>
+          <label class="sbox"><svg viewBox="0 0 24 24" aria-hidden="true"><circle cx="11" cy="11" r="7"/><path d="M20 20l-3.5-3.5"/></svg><input type="search" id="myQ" placeholder="Cari kode SKU, barcode, atau nama" autocomplete="off" enterkeyhint="search" aria-label="Cari di hitungan device ini"><button type="button" class="clr" id="myClr" aria-label="Hapus pencarian" hidden><svg viewBox="0 0 24 24" aria-hidden="true"><path d="M6 6l12 12M18 6L6 18"/></svg></button></label>
+          <div class="chips" id="myChips" role="group" aria-label="Filter"></div>
+          <div class="tb-meta"><label class="sortsel"><span>Urutkan</span><select id="mySort" aria-label="Urutkan"><option value="baru">Terbaru</option><option value="nama">Nama A–Z</option><option value="sku">Kode SKU</option><option value="jumlah">Jumlah terbanyak</option></select></label><span class="tb-r"><span id="myMeta"></span><button type="button" class="rst" id="myRst" data-reset="my" hidden><svg viewBox="0 0 24 24" aria-hidden="true"><path d="M3 12a9 9 0 1 0 3-6.7"/><path d="M3 4v5h5"/></svg>Reset</button></span></div>
+        </div>
+        <div class="mylist" id="myList"></div>
       </div>
     </section>
 
     <!-- DEVICE & SESI -->
     <section class="tab" id="tab-sesi" hidden>
       <div class="panel">
-        <h3>Device ini</h3>
-        <label class="lbl" for="devName">Nama device / penghitung</label>
-        <div class="row">
-          <input type="text" id="devName" placeholder="mis. HP-01 Rak A" maxlength="40">
-          <button class="btn primary" id="devSave" type="button">Simpan</button>
+        <h3><span class="ci"><svg viewBox="0 0 24 24" aria-hidden="true"><rect x="7" y="2" width="10" height="20" rx="2"/><path d="M11 18h2"/></svg></span>Device ini</h3>
+        <div class="dev-card" id="devCard" hidden>
+          <span class="dv-av"><svg viewBox="0 0 24 24" aria-hidden="true"><rect x="7" y="2" width="10" height="20" rx="2"/><path d="M11 18h2"/></svg></span>
+          <div class="dv-main"><div class="dv-nm" id="devNameShow"></div><div class="dv-sub">Satu device untuk satu penghitung</div></div>
+          <button class="ib ib-edit" id="devEditBtn" type="button" aria-label="Ganti nama device" title="Ganti nama device"><svg viewBox="0 0 24 24" aria-hidden="true"><path d="M4 20h4L19 9l-4-4L4 16v4zM13.5 6.5l4 4"/></svg></button>
         </div>
-        <p class="hint">Semua hitungan dari device ini ditandai dengan nama ini. Pakai nama unik per device.</p>
+        <div id="devForm">
+          <label class="lbl" for="devName">Nama device / penghitung <span class="req">*</span></label>
+          <div class="row">
+            <input type="text" id="devName" placeholder="mis. HP-01 RAK A" maxlength="40" autocomplete="off" autocapitalize="characters" spellcheck="false">
+            <button class="btn primary" id="devSave" type="button">Simpan</button>
+            <button class="btn" id="devCancel" type="button" hidden>Batal</button>
+          </div>
+          <p class="hint">Satu device = satu penghitung. Pakai nama unik, huruf kapital.</p>
+          <p class="cap-note" id="capNote" role="status" hidden>Huruf kecil otomatis diubah menjadi KAPITAL.</p>
+        </div>
       </div>
       <div class="panel">
-        <h3>Sesi opname</h3>
-        <p class="hint" style="margin-top:0">Sesi dibuat oleh admin. Sesi yang sedang berjalan otomatis dipakai.</p>
-        <div id="sessList" style="margin-top:8px"></div>
-        <div class="row" style="margin-top:10px"><button class="btn sm" id="sessReload" type="button">Muat ulang daftar sesi</button></div>
+        <h3><span class="ci"><svg viewBox="0 0 24 24" aria-hidden="true"><rect x="5" y="4" width="14" height="17" rx="2"/><path d="M9 4h6v3H9zM9 12h6M9 16h4"/></svg></span>Sesi opname <span class="cnt" id="sessCnt"></span><button class="ib ib-edit h3-act" id="sessReload" type="button" aria-label="Muat ulang daftar sesi" title="Muat ulang daftar sesi"><svg viewBox="0 0 24 24" aria-hidden="true"><path d="M21 12a9 9 0 1 1-3-6.7"/><path d="M21 4v5h-5"/></svg></button></h3>
+        <p class="sub">Sesi dibuat oleh admin. Sesi yang sedang berjalan otomatis dipakai.</p>
+        <div id="sessList"></div>
       </div>
     </section>
   </main>
@@ -130,9 +204,26 @@
   </div>
 </div>
 
+<div class="modal" id="leaveGate" hidden role="dialog" aria-modal="true" aria-labelledby="lgTitle">
+  <div class="modal-box">
+    <div class="ng-h"><span class="si warn"><svg viewBox="0 0 24 24" aria-hidden="true"><path d="M12 4l9 16H3L12 4z"/><path d="M12 10v4M12 17h.01"/></svg></span><b id="lgTitle">Keluar dari halaman?</b></div>
+    <div class="ng-body" id="lgText"></div>
+    <div class="ng-act"><button class="btn danger" id="lgYes" type="button">Keluar</button><button class="btn primary" id="lgNo" type="button">Tetap di sini</button></div>
+  </div>
+</div>
+
+<div class="modal" id="nameGate" hidden role="dialog" aria-modal="true" aria-labelledby="ngTitle">
+  <div class="modal-box">
+    <div class="ng-h"><span class="si warn"><svg viewBox="0 0 24 24" aria-hidden="true"><path d="M12 4l9 16H3L12 4z"/><path d="M12 10v4M12 17h.01"/></svg></span><b id="ngTitle">Ganti nama device?</b></div>
+    <div class="ng-body" id="ngText"></div>
+    <label class="ng-ck" id="ngCkWrap" hidden><input type="checkbox" id="ngCk"><span>Saya mengerti</span></label>
+    <div class="ng-act"><button class="btn" id="ngNo" type="button">Batal</button><button class="btn primary" id="ngYes" type="button">Ya, ganti nama</button></div>
+  </div>
+</div>
+
 <div class="toast" id="toast" hidden></div>
 
-<script src="assets/config.js?v=4"></script>
-<script src="assets/app.js?v=6"></script>
+<script src="assets/config.js?v=5"></script>
+<script src="assets/app.js?v=63"></script>
 </body>
 </html>
