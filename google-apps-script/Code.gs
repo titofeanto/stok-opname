@@ -11,7 +11,9 @@
  *
  * Tab:
  *   Config      key/value: kode_akses (admin), nama_gudang, master_*
- *   Master_DMS  stok terakhir dari DMS (sku, barcode, barcode_karton, nama, isi_karton, stok_karton, stok_lusin, stok_pcs)
+ *   Master_<sesi_id>  stok DMS khusus satu sesi (tiap sesi/distributor punya sendiri; info versinya di tab Sesi).
+ *   Master_DMS  master lama (satu untuk semua). Hanya dipakai sesi yang dibuat sebelum master dipisah per sesi.
+ *               kolom: stok terakhir dari DMS (sku, barcode, barcode_karton, nama, isi_karton, stok_karton, stok_lusin, stok_pcs)
  *   Sesi        daftar sesi opname; kolom kode = kode link penghitung khusus sesi itu
  *   Hitung      satu baris per sesi + device + SKU + kondisi, nilai terakhir (karton, lusin, pcs).
  *               kondisi kosong = Good Stock, 'rusak' = Bad Stock. Di sisi web, Bad Stock ditulis sebagai kunci "SKU#B".
@@ -21,7 +23,7 @@
 const SH = { CONFIG: 'Config', MASTER: 'Master_DMS', SESI: 'Sesi', HITUNG: 'Hitung', LOG: 'Log' };
 const HEAD = {
   Master_DMS: ['sku', 'barcode', 'barcode_karton', 'nama', 'isi_karton', 'stok_karton', 'stok_lusin', 'stok_pcs'],
-  Sesi: ['sesi_id', 'nama', 'status', 'dibuat', 'dibuat_oleh', 'kode'],
+  Sesi: ['sesi_id', 'nama', 'status', 'dibuat', 'dibuat_oleh', 'kode', 'master_versi', 'master_file', 'master_diimport'],
   Hitung: ['sesi_id', 'device_id', 'device_nama', 'sku', 'karton', 'lusin', 'pcs', 'updated_at', 'kondisi'],
   Log: ['log_id', 'waktu', 'sesi_id', 'device_id', 'device_nama', 'sku', 'karton', 'lusin', 'pcs', 'aksi', 'kondisi'],
 };
@@ -80,14 +82,19 @@ function handle_(p) {
     switch (p.action) {
       case 'init': {
         const all = readSessions_(ss, role === 'admin');
-        const out = { ok: true, role: role, gudang: cfg.nama_gudang || '', master: masterMeta_(cfg), serverTime: new Date().toISOString(),
+        const out = { ok: true, role: role, gudang: cfg.nama_gudang || '', serverTime: new Date().toISOString(),
           sessions: role === 'admin' ? all : all.filter(s => s.id === scope) };
-        if (role === 'hitung') out.scopedSesi = scope;
+        if (role === 'hitung') { out.scopedSesi = scope; out.master = (out.sessions[0] || {}).master || null; }
         return jsonOut_(out);
       }
       case 'master': {
-        const values = ss.getSheetByName(SH.MASTER).getDataRange().getDisplayValues();
-        return jsonOut_({ ok: true, master: masterMeta_(cfg), values: role === 'admin' ? values : masterForCounter_(values) });
+        const sid = String(p.sesi || '');
+        if (role === 'hitung' && sid !== scope) return jsonOut_({ error: 'wrong_session', message: 'Link ini bukan untuk sesi tersebut.' });
+        const sess = readSessions_(ss).find(x => x.id === sid);
+        if (!sess) return jsonOut_({ error: 'session_not_found' });
+        const msh = masterSheetFor_(ss, sess);
+        const values = msh ? msh.getDataRange().getDisplayValues() : [];
+        return jsonOut_({ ok: true, master: sess.master, values: role === 'admin' ? values : masterForCounter_(values) });
       }
       case 'rekap':
         return jsonOut_({ ok: true, rows: readHitung_(ss, String(p.sesi || '')), serverTime: new Date().toISOString() });
@@ -136,13 +143,15 @@ function ensureSheets_(ss) {
       if (name === SH.HITUNG) sh.getRange('A:D').setNumberFormat('@');
       if (name === SH.LOG) sh.getRange('A:F').setNumberFormat('@');
     } else if (name === SH.SESI) {
-      if (String(sh.getRange(1, 6).getValue() || '') === '') sh.getRange(1, 6).setValue('kode').setFontWeight('bold');
+      HEAD.Sesi.forEach((h, i) => { if (i >= 5 && String(sh.getRange(1, i + 1).getValue() || '') === '') sh.getRange(1, i + 1).setValue(h).setFontWeight('bold'); });
     } else if (name === SH.HITUNG || name === SH.LOG) {
       // Sheet lama: tambahkan kolom kondisi di header kalau belum ada.
       const h = HEAD[name];
       if (String(sh.getRange(1, h.length).getValue() || '') === '') sh.getRange(1, h.length).setValue('kondisi').setFontWeight('bold');
     }
   });
+  // Sesi yang dibuat sebelum waktu ini masih memakai Master_DMS lama; sesi baru wajib import master sendiri.
+  if (!String(readConfig_(ss).master_per_sesi_sejak || '').trim()) setConfig_(ss, 'master_per_sesi_sejak', new Date().toISOString());
 }
 
 function readConfig_(ss) {
@@ -210,21 +219,31 @@ function masterForCounter_(values) {
     idx.map(i => (i >= 0 ? r[i] : '')).concat(sIdx.some(i => num(r[i]) > 0) ? '1' : '0')));
 }
 
-function masterMeta_(cfg) {
-  return { version: String(cfg.master_versi || ''), fileName: String(cfg.master_file || ''),
-    importedAt: cfg.master_diimport ? String(cfg.master_diimport) : '' };
+function masterSheetName_(sid) { return 'Master_' + sid; }
+
+// Tab master milik sesi. Sesi lama (dibuat sebelum master dipisah) jatuh ke Master_DMS selama belum import sendiri.
+function masterSheetFor_(ss, sess) {
+  return ss.getSheetByName(masterSheetName_(sess.id)) || (sess.legacy ? ss.getSheetByName(SH.MASTER) : null);
 }
 
 /* ---------------- sessions ---------------- */
 
 function readSessions_(ss, withCode) {
   const v = ss.getSheetByName(SH.SESI).getDataRange().getValues();
+  const cfg = readConfig_(ss), since = String(cfg.master_per_sesi_sejak || '');
   return v.slice(1).filter(r => r[0]).map(r => {
     const o = {
       id: String(r[0]), name: String(r[1]), status: String(r[2] || 'open'),
       createdAt: r[3] instanceof Date ? r[3].toISOString() : String(r[3] || ''),
     };
     if (withCode) o.kode = String(r[5] || '');
+    const own = !!ss.getSheetByName(masterSheetName_(o.id));
+    o.legacy = !own && !!since && !!o.createdAt && o.createdAt < since;
+    o.master = own
+      ? { version: String(r[6] || ''), fileName: String(r[7] || ''), importedAt: String(r[8] || '') }
+      : o.legacy
+        ? { version: String(cfg.master_versi || ''), fileName: String(cfg.master_file || ''), importedAt: cfg.master_diimport ? String(cfg.master_diimport) : '' }
+        : { version: '', fileName: '', importedAt: '' };
     return o;
   });
 }
@@ -256,6 +275,8 @@ function deleteSession_(ss, p) {
   const sesi = ss.getSheetByName(SH.SESI);
   const row = findSessionRow_(sesi, id);
   if (row > 0) sesi.deleteRow(row);
+  const ms = ss.getSheetByName(masterSheetName_(id));
+  if (ms) ss.deleteSheet(ms);
   const h = ss.getSheetByName(SH.HITUNG);
   const v = h.getDataRange().getValues();
   const keep = [v[0]].concat(v.slice(1).filter(r => String(r[0]) !== id));
@@ -347,33 +368,42 @@ function toInt_(x) { const n = parseInt(x, 10); return isNaN(n) ? 0 : n; }
 /* ---------------- master DMS ---------------- */
 
 function importMaster_(ss, p) {
+  const sid = String(p.sesi || '');
+  const sesi = ss.getSheetByName(SH.SESI);
+  const row = sid ? findSessionRow_(sesi, sid) : -1;
+  if (row < 0) return jsonOut_({ error: 'session_not_found', message: 'Pilih sesi dulu sebelum import stok DMS.' });
   const rows = Array.isArray(p.rows) ? p.rows : [];
   if (!rows.length) return jsonOut_({ error: 'bad_request', message: 'Data master kosong.' });
-  const sh = ss.getSheetByName(SH.MASTER);
+  const name = masterSheetName_(sid);
+  const sh = ss.getSheetByName(name) || ss.insertSheet(name);
   sh.clearContents();
   sh.getRange('A:C').setNumberFormat('@');
   const data = [HEAD.Master_DMS].concat(rows.map(r => [
     String(r[0] || ''), String(r[1] || ''), String(r[2] || ''), String(r[3] || ''), toInt_(r[4]), toInt_(r[5]), toInt_(r[6]), toInt_(r[7])]));
   sh.getRange(1, 1, data.length, HEAD.Master_DMS.length).setValues(data);
-  const nowIso = new Date().toISOString();
-  setConfig_(ss, 'master_versi', nowIso);
-  setConfig_(ss, 'master_file', String(p.fileName || 'upload web'));
-  setConfig_(ss, 'master_diimport', nowIso);
-  return jsonOut_({ ok: true, count: rows.length });
+  sh.getRange(1, 1, 1, HEAD.Master_DMS.length).setFontWeight('bold');
+  sh.setFrozenRows(1);
+  sesi.getRange(row, 7, 1, 3).setValues([[new Date().toISOString(), String(p.fileName || 'upload web'), new Date().toISOString()]]);
+  return jsonOut_({ ok: true, count: rows.length, sessions: readSessions_(ss, true) });
 }
 
 /**
- * Simple trigger: kalau tab Master_DMS diedit/ditempel langsung di Sheet,
+ * Simple trigger: kalau tab Master_DMS atau Master_<sesi_id> diedit/ditempel langsung di Sheet,
  * tandai versi baru supaya semua device mengambil ulang master.
  */
 function onEdit(e) {
   try {
     const sh = e && e.range && e.range.getSheet();
-    if (!sh || sh.getName() !== SH.MASTER) return;
-    const ss = sh.getParent();
-    setConfig_(ss, 'master_versi', new Date().toISOString());
-    setConfig_(ss, 'master_file', 'diedit langsung di Sheet');
-    setConfig_(ss, 'master_diimport', new Date().toISOString());
+    if (!sh) return;
+    const name = sh.getName(), ss = sh.getParent(), nowIso = new Date().toISOString();
+    if (name === SH.MASTER) {
+      setConfig_(ss, 'master_versi', nowIso);
+      setConfig_(ss, 'master_file', 'diedit langsung di Sheet');
+      setConfig_(ss, 'master_diimport', nowIso);
+    } else if (name.indexOf('Master_') === 0) {
+      const sesi = ss.getSheetByName(SH.SESI), row = findSessionRow_(sesi, name.slice(7));
+      if (row > 0) sesi.getRange(row, 7, 1, 3).setValues([[nowIso, 'diedit langsung di Sheet', nowIso]]);
+    }
   } catch (err) { /* abaikan */ }
 }
 

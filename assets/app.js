@@ -107,7 +107,7 @@ const S = {
   gudang: '',
   sessions: LS.json(K('so-sessions')) || [],
   sessionId: (MODE === 'hitung' && (() => { const m = codeMap(), c = new URLSearchParams(location.search).get('k'); return c ? Object.keys(m).find(id => m[id] === c) || null : null; })()) || (MODE === 'hitung' ? LS.get('so-session-h') : LS.get('so-session')) || null,
-  master: {meta:null, items:[]}, bySku: new Map(), byCode: new Map(),
+  master: {meta:null, items:[]}, masterSid: null, bySku: new Map(), byCode: new Map(),
   local: null, dirty: {}, plog: [], ready: false,   // data device ini untuk sesi aktif
   remote: [], remoteAt: null, remoteSid: null,        // baris Hitung semua device
   online: navigator.onLine, pushing: false, blocked: {},
@@ -154,7 +154,7 @@ async function login(code, silent){
     S.role = d.role;
     applyInit(d);
     showApp();
-    await syncMaster(d.master);
+    await syncMaster();
   } catch(e){
     if (!$('#appScreen').hidden && !e.code) { console.error(e); showBanner('Error: ' + (e && e.stack || e.message || e)); }
     if (e.code === 'invalid_code') {
@@ -185,7 +185,7 @@ function showLogin(){ $('#appScreen').hidden = true; $('#loginScreen').hidden = 
 let started = false;
 function showApp(){
   $('#loginScreen').hidden = true; $('#appScreen').hidden = false;
-  if (!S.master.items.length) { const c = LS.json(K('so-master')); if (c) setMaster(c.meta, c.items); }
+  if (S.masterSid !== S.sessionId) loadMasterLocal(S.sessionId);
   if (!S.local) selectSession(S.sessionId);
   setTab(TABS.includes(LS.get(K('so-tab'))) ? LS.get(K('so-tab')) : 'hitung');
   if (!started) { started = true; setInterval(tick, 20000); }
@@ -207,18 +207,32 @@ function setMaster(meta, items){
     if (p.bk) add(p.bk, 'k');
   }
 }
-async function syncMaster(meta, force){
-  const cached = LS.json(K('so-master'));
-  if (!force && cached && meta && cached.meta && cached.meta.version === meta.version && meta.version) { setMaster(cached.meta, cached.items); renderAll(); return; }
+// Master DMS dipisah per sesi: tiap sesi punya stok DMS sendiri, disimpan di cache per sesi.
+const masterKey = sid => K('so-master-' + sid);
+function loadMasterLocal(sid){
+  const c = sid ? LS.json(masterKey(sid)) : null;
+  S.masterSid = sid || null;
+  setMaster(c ? c.meta : null, c ? c.items : []);
+}
+async function syncMaster(force){
+  const sid = S.sessionId; if (!sid) return;
+  const meta = (curSession() || {}).master || null;
+  const cached = LS.json(masterKey(sid));
+  if (!force && meta) {
+    if (cached && cached.meta && meta.version && cached.meta.version === meta.version) { if (S.masterSid !== sid) loadMasterLocal(sid); renderAll(); return; }
+    if (!meta.version && !(cached && cached.items && cached.items.length)) { loadMasterLocal(sid); renderAll(); return; }
+  }
   try {
-    const d = await API.get({action: 'master'});
+    const d = await API.get({action: 'master', sesi: sid, _code: codeFor(sid)});
+    if (S.sessionId !== sid) return;
     const parsed = parseDmsRows(d.values || [], 'Sheet', MODE === 'hitung');
     const items = parsed.items || [];
+    S.masterSid = sid;
     setMaster(d.master, items);
-    LS.put(K('so-master'), {meta: d.master, items});
+    LS.put(masterKey(sid), {meta: d.master, items});
     renderAll();
     if (force) toast('Stok DMS diambil ulang: ' + fmt(items.length) + ' SKU');
-  } catch(e){ if (cached) setMaster(cached.meta, cached.items); if (force) toast('Gagal mengambil stok DMS'); renderAll(); }
+  } catch(e){ if (S.sessionId !== sid) return; if (cached) { loadMasterLocal(sid); } if (force) toast('Gagal mengambil stok DMS'); renderAll(); }
 }
 function productFor(sku){ return S.bySku.get(baseSku(sku)) || null; }
 
@@ -233,8 +247,9 @@ function selectSession(sid){
   S.plog = (sid && LS.json('so-plog-' + sid)) || [];
   S.ready = !!local;
   S.remote = []; S.remoteAt = null; S.remoteSid = sid;
+  loadMasterLocal(sid);
   renderAll();
-  if (sid) fetchRekap();
+  if (sid) { fetchRekap(); syncMaster(); }
 }
 function saveLocal(){
   if (!S.sessionId) return;
@@ -993,9 +1008,11 @@ async function importMaster(){
   const p = S.parsed; if (!p || !p.items.length) return;
   const btn = $('#impYes') || $('#impBtn'); if (btn) { btn.disabled = true; btn.textContent = 'Menyimpan…'; }
   try {
-    await API.post({action: 'importMaster', fileName: p.fileName, rows: p.items.map(i => [i.s, i.b || '', i.bk || '', i.n, i.k, i.qk, i.ql, i.qp])});
+    if (!S.sessionId) { toast('Pilih sesi dulu sebelum import stok DMS'); S.confirmImport = false; renderDmsPreview(); return; }
+    const d = await API.post({action: 'importMaster', sesi: S.sessionId, fileName: p.fileName, rows: p.items.map(i => [i.s, i.b || '', i.bk || '', i.n, i.k, i.qk, i.ql, i.qp])});
     S.parsed = null; S.confirmImport = false; renderDmsPreview();
-    await syncMaster(null, true);
+    if (d && d.sessions) setSessions(d.sessions);
+    await syncMaster(true);
   } catch(e){
     S.confirmImport = false; renderDmsPreview();
     toast(netFail(e) ? 'Gagal menyimpan: tidak ada koneksi' : 'Gagal menyimpan: ' + e.message);
@@ -1015,9 +1032,10 @@ function dmsCard(p){
 function renderDms(){
   const m = S.master.meta;
   const mi = (ic, label, val, cls) => '<div class="mi3' + (cls ? ' ' + cls : '') + '"><svg viewBox="0 0 24 24" aria-hidden="true">' + ic + '</svg><span><small>' + label + '</small><b>' + val + '</b></span></div>';
+  const cs = curSession(), sn = cs ? esc(cs.name) : '';
   $('#dmsMeta').innerHTML = S.master.items.length
-    ? mi('<path d="M12 3l9 5-9 5-9-5 9-5zM3 13l9 5 9-5"/>', 'Data', fmt(S.master.items.length) + ' SKU') + mi('<circle cx="12" cy="12" r="9"/><path d="M12 7v5l3 2"/>', 'Diperbarui', m && m.importedAt ? esc(fmtDate(m.importedAt)) : '-') + (m && m.fileName ? mi('<path d="M14 3H7a2 2 0 0 0-2 2v14a2 2 0 0 0 2 2h10a2 2 0 0 0 2-2V8l-5-5zM14 3v5h5"/>', 'File', esc(m.fileName), 'wide') : '')
-    : '<div class="empty">Belum ada data stok DMS. Unggah file untuk mulai.</div>';
+    ? (cs ? mi('<rect x="5" y="4" width="14" height="17" rx="2"/><path d="M9 4h6v3H9z"/>', 'Sesi', sn, 'wide') : '') + mi('<path d="M12 3l9 5-9 5-9-5 9-5zM3 13l9 5 9-5"/>', 'Data', fmt(S.master.items.length) + ' SKU') + mi('<circle cx="12" cy="12" r="9"/><path d="M12 7v5l3 2"/>', 'Diperbarui', m && m.importedAt ? esc(fmtDate(m.importedAt)) : '-') + (m && m.fileName ? mi('<path d="M14 3H7a2 2 0 0 0-2 2v14a2 2 0 0 0 2 2h10a2 2 0 0 0 2-2V8l-5-5zM14 3v5h5"/>', 'File', esc(m.fileName), 'wide') : '')
+    : '<div class="empty">' + (cs ? 'Belum ada stok DMS untuk sesi "' + sn + '". Unggah file khusus sesi ini.' : 'Belum ada sesi. Buat atau pilih sesi dulu, lalu unggah stok DMS.') + '</div>';
   const q = norm(S.dmsSearch);
   const all = S.master.items;
   const bySearch = q ? all.filter(p => norm(p.s).includes(q) || norm(p.n).includes(q) || norm(p.b).includes(q) || norm(p.bk).includes(q)) : all;
@@ -1087,11 +1105,13 @@ function setSessions(list){
   let unblocked = false;
   S.sessions.forEach(s => { if (s.status !== 'closed' && S.blocked[s.id]) { delete S.blocked[s.id]; unblocked = true; } });
   if (unblocked) schedulePush(500);
+  const curS = S.sessions.find(x => x.id === S.sessionId);
+  if (curS && curS.master && ((S.masterSid !== S.sessionId) || ((S.master.meta && S.master.meta.version) || '') !== (curS.master.version || ''))) syncMaster();
   if (S.sessionId && !S.sessions.find(s => s.id === S.sessionId)) { const pick = S.sessions.find(s => s.status !== 'closed') || S.sessions[0]; selectSession(pick ? pick.id : null); }
   renderAll();
 }
 async function refreshSessions(){
-  try { const d = await API.get({action: 'init'}); S.online = true; S.gudang = d.gudang || ''; setSessions(d.sessions); if (d.master && (!S.master.meta || d.master.version !== S.master.meta.version)) syncMaster(d.master); }
+  try { const d = await API.get({action: 'init'}); S.online = true; S.gudang = d.gudang || ''; setSessions(d.sessions); }
   catch(e){ if (netFail(e)) { S.online = false; renderSync(); } }
 }
 async function sessAction(body, okMsg){
@@ -1225,7 +1245,7 @@ on('#dmsPreview', 'click', e => {
   else if (e.target.id === 'impNo') { if (S.confirmImport) S.confirmImport = false; else S.parsed = null; renderDmsPreview(); }
 });
 on('#dmsPreview', 'change', e => { if (e.target.id === 'impAck') { S.impAck = e.target.checked; renderDmsPreview(); } });
-on('#dmsReload', 'click', () => syncMaster(null, true));
+on('#dmsReload', 'click', () => syncMaster(true));
 on('#tplBtn', 'click', () => saveXlsx('template-stok-dms.xlsx', [['Master_DMS', [
   ['sku', 'barcode', 'barcode_karton', 'nama', 'isi_karton', 'stok_karton', 'stok_lusin', 'stok_pcs'],
   ['BRG-001', '8991234567001', '18991234567001', 'Contoh Barang A 250ml', 48, 25, 0, 0],
@@ -1275,7 +1295,7 @@ on('#sessList', 'click', e => {
   else if (b.dataset.scancel) { S.confirmSess = null; renderSesi(); }
   else if (b.dataset.sdelyes) {
     const sid = b.dataset.sdelyes; S.confirmSess = null;
-    sessAction({action: 'deleteSession', sesi: sid}, 'Sesi dihapus').then(d => { if (d) ['so-st-', 'so-dirty-', 'so-plog-'].forEach(p => LS.del(p + sid)); });
+    sessAction({action: 'deleteSession', sesi: sid}, 'Sesi dihapus').then(d => { if (d) ['so-st-', 'so-dirty-', 'so-plog-'].forEach(p => LS.del(p + sid)); LS.del(masterKey(sid)); });
   }
 });
 function wireTb(pfx, st){
