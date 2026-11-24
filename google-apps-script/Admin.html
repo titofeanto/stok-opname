@@ -933,7 +933,7 @@ details.devd[open] summary::after{transform:rotate(180deg)}
       </div>
       <div class="panel">
         <h3><span class="ci"><svg viewBox="0 0 24 24" aria-hidden="true"><path d="M10 14a4 4 0 0 0 5.7 0l3-3a4 4 0 0 0-5.7-5.7l-1 1M14 10a4 4 0 0 0-5.7 0l-3 3a4 4 0 0 0 5.7 5.7l1-1"/></svg></span>Link penghitung</h3>
-        <p class="hint" style="margin-top:0">Bagikan ke tim gudang. Penghitung masuk tanpa kode dan tidak melihat stok DMS atau Rekap.</p>
+        <p class="hint" style="margin-top:0">Satu link per sesi, bagikan ke tim gudang sesi itu. Penghitung masuk tanpa kode, hanya bisa membuka sesinya, dan tidak melihat stok DMS atau Rekap.</p>
         <div id="counterLink" style="margin-top:10px"></div>
       </div>
       <div class="panel">
@@ -985,6 +985,9 @@ const on = (sel, ev, fn) => { const el = $(sel); if (el) el.addEventListener(ev,
 // Halaman penghitung (hitung.html) memakai body data-mode="hitung": tanpa rekap dan tanpa angka stok DMS.
 const MODE = document.body.dataset.mode === 'hitung' ? 'hitung' : 'admin';
 const K = key => MODE === 'hitung' ? key + '-h' : key;
+// Penghitung: satu link = satu sesi. Kode tiap sesi diingat supaya hitungan sesi lama tetap terkirim dengan kodenya sendiri.
+const codeMap = () => { try { return JSON.parse(localStorage.getItem('so-codes-h') || '{}') || {}; } catch (e) { return {}; } };
+const codeFor = sid => (MODE === 'hitung' && codeMap()[sid]) || S.code;
 const TABS = MODE === 'hitung' ? ['hitung', 'hasil', 'sesi'] : ['hitung', 'hasil', 'rekap', 'dms', 'sesi'];
 const esc = s => String(s ?? '').replace(/[&<>"']/g, c => ({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]));
 const nf = new Intl.NumberFormat('id-ID');
@@ -1076,12 +1079,12 @@ function loadScript(src){
 /* ================= state ================= */
 const S = {
   code: (MODE === 'hitung' && ((window.APP_CONFIG && window.APP_CONFIG.KODE_HITUNG) || new URLSearchParams(location.search).get('k'))) || LS.get(K('so-code')) || '',
-  role: null, kodeHitung: '', confirmRotate: false,
+  role: null, confirmRotate: null,
   deviceId: LS.get('so-device-id') || ('d-' + rid() + rid()),
   deviceName: (LS.get('so-device-name') || '').toUpperCase(),
   gudang: '',
   sessions: LS.json(K('so-sessions')) || [],
-  sessionId: LS.get('so-session') || null,
+  sessionId: (MODE === 'hitung' && (() => { const m = codeMap(), c = new URLSearchParams(location.search).get('k'); return c ? Object.keys(m).find(id => m[id] === c) || null : null; })()) || (MODE === 'hitung' ? LS.get('so-session-h') : LS.get('so-session')) || null,
   master: {meta:null, items:[]}, bySku: new Map(), byCode: new Map(),
   local: null, dirty: {}, plog: [], ready: false,   // data device ini untuk sesi aktif
   remote: [], remoteAt: null, remoteSid: null,        // baris Hitung semua device
@@ -1099,12 +1102,12 @@ const API = {
   ready(){ const b = this.base(); return !!b && !b.includes('PASTE_URL'); },
   async get(params){
     const u = new URL(this.base());
-    Object.entries(Object.assign({}, params, {code: S.code})).forEach(([k, v]) => u.searchParams.set(k, v));
+    Object.entries(Object.assign({}, params, {code: (params && params._code) || S.code})).filter(([k]) => k !== '_code').forEach(([k, v]) => u.searchParams.set(k, v));
     return this._json(await fetch(u.toString(), {cache: 'no-store'}));
   },
   async post(body){
     return this._json(await fetch(this.base(), {method: 'POST', headers: {'Content-Type': 'text/plain;charset=utf-8'},
-      body: JSON.stringify(Object.assign({}, body, {code: S.code}))}));
+      body: JSON.stringify(Object.assign({}, body, {code: body._code || S.code}, {_code: undefined}))}));
   },
   async _json(res){
     if (!res.ok) throw Object.assign(new Error('HTTP ' + res.status), {code: 'http'});
@@ -1126,7 +1129,7 @@ async function login(code, silent){
     const d = await API.get({action: 'init'});
     if (MODE === 'admin' && d.role !== 'admin') { $('#loginErr').textContent = 'Kode ini untuk link penghitung. Masukkan kode admin.'; S.code = ''; showLogin(); return; }
     LS.set(K('so-code'), code);
-    S.role = d.role; S.kodeHitung = d.kodeHitung || '';
+    S.role = d.role;
     applyInit(d);
     showApp();
     await syncMaster(d.master);
@@ -1145,10 +1148,14 @@ async function login(code, silent){
 }
 function applyInit(d){
   S.online = true;
+  if (MODE === 'hitung' && d.scopedSesi) {
+    const m = codeMap(); m[d.scopedSesi] = S.code; try { localStorage.setItem('so-codes-h', JSON.stringify(m)); } catch (e) {}
+    if (S.sessionId !== d.scopedSesi) { S.sessionId = d.scopedSesi; S.local = null; S.ready = false; }
+  }
   S.gudang = d.gudang || '';
   S.sessions = (d.sessions || []).sort((a, b) => String(b.createdAt).localeCompare(String(a.createdAt)));
   LS.put(K('so-sessions'), S.sessions);
-  let sid = S.sessionId;
+  let sid = (MODE === 'hitung' && d.scopedSesi) || S.sessionId;
   if (!sid || !S.sessions.find(s => s.id === sid)) { const pick = S.sessions.find(s => s.status !== 'closed') || S.sessions[0]; sid = pick ? pick.id : null; }
   if (sid !== S.sessionId || !S.local) selectSession(sid);
 }
@@ -1197,7 +1204,7 @@ function productFor(sku){ return S.bySku.get(baseSku(sku)) || null; }
 function curSession(){ return S.sessions.find(s => s.id === S.sessionId) || null; }
 function selectSession(sid){
   S.sessionId = sid; S.editing = null; S.confirmDel = null; closeCard();
-  if (sid) LS.set('so-session', sid);
+  if (sid) LS.set(MODE === 'hitung' ? 'so-session-h' : 'so-session', sid);
   const local = sid ? LS.json('so-st-' + sid) : null;
   S.local = local || {items: {}, log: []};
   S.dirty = (sid && LS.json('so-dirty-' + sid)) || {};
@@ -1229,7 +1236,7 @@ function canCount(){
 async function fetchRekap(){
   const sid = S.sessionId; if (!sid) return;
   try {
-    const d = await API.get(MODE === 'hitung' ? {action: 'myRows', sesi: sid, device_id: S.deviceId} : {action: 'rekap', sesi: sid});
+    const d = await API.get(MODE === 'hitung' ? {action: 'myRows', sesi: sid, device_id: S.deviceId, _code: codeFor(sid)} : {action: 'rekap', sesi: sid});
     if (S.sessionId !== sid) return;
     S.online = true;
     S.remote = d.rows || []; S.remoteAt = d.serverTime || now(); S.remoteSid = sid;
@@ -1278,7 +1285,7 @@ async function pushSession(sid){
   const logs = plog.slice(0, 300);
   const items = Object.keys(sent).map(sku => { const it = local.items[sku] || {}; const w = wireItem(sku, it, (local.isi || {})[baseSku(sku)]); return {sku, k: w.k, l: w.l, p: w.p, at: it.at || now()}; });
   try {
-    await API.post({action: 'push', sesi: sid, device_id: S.deviceId, device_nama: S.deviceName || 'Tanpa nama', items, log: logs});
+    await API.post({action: 'push', sesi: sid, device_id: S.deviceId, device_nama: S.deviceName || 'Tanpa nama', items, log: logs, _code: codeFor(sid)});
     S.online = true; S.pushErr = null;
     const ids = new Set(logs.map(l => l.id));
     if (sid === S.sessionId) {
@@ -1297,7 +1304,10 @@ async function pushSession(sid){
       if (sid === S.sessionId) refreshSessions();
       return true;
     }
-    if (e.code === 'invalid_code') { logout(true); return false; }
+    if (e.code === 'invalid_code' || e.code === 'wrong_session') {
+      if (MODE === 'hitung' && sid !== S.sessionId) { S.blocked[sid] = true; showBanner('Link untuk sesi lain sudah tidak berlaku. Hitungan sesi itu tidak terkirim; minta link baru ke admin.'); return true; }
+      logout(true); return false;
+    }
     if (netFail(e)) S.online = false; else S.pushErr = e.message || e.code || 'error';
     return false;
   }
@@ -2022,35 +2032,32 @@ function renderSesi(){
     const lbl = closed ? 'Ditutup' : 'Berjalan';
     const ico = `<span class="si ${closed ? 'off' : 'ok'}" title="${lbl}" role="img" aria-label="${lbl}"><svg viewBox="0 0 24 24">${closed ? '<rect x="5" y="11" width="14" height="9" rx="2"/><path d="M8 11V8a4 4 0 0 1 8 0v3"/>' : '<path d="M8 5l11 7-11 7z"/>'}</svg></span>`;
     const use = cur ? '<span class="you">Dipakai</span>' : `<button class="btn sm primary" type="button" data-use="${esc(s.id)}">Pakai</button>`;
+    const lnk = MODE === 'admin' ? `<button class="btn sm" type="button" data-copylink="${esc(s.id)}">Salin link</button><button class="btn sm danger" type="button" data-rotlink="${esc(s.id)}">Ganti link</button>` : '';
     const adm = MODE === 'admin' ? IB.tog('data-toggle="' + esc(s.id) + '"', closed ? 'Buka lagi sesi' : 'Tutup sesi', closed) + IB.del('data-sdel="' + esc(s.id) + '"', 'Hapus sesi') : '';
-    return `<div class="sess ${cur ? 'cur' : ''}">${ico}<div class="it-i"><div class="nm">${esc(s.name)}</div><div class="sk">Dibuat ${esc(fmtDate(s.createdAt))} · <span class="pill ${closed ? 'closed' : 'open'}">${lbl}</span></div></div><div class="it-a">${use}${adm}</div>${S.confirmSess === s.id ? `<div class="confirm"><span>Hapus sesi "${esc(s.name)}" beserta hitungan semua device di Google Sheet? Tidak bisa dibatalkan.</span><button class="btn sm danger" type="button" data-sdelyes="${esc(s.id)}">Ya, hapus</button><button class="btn sm" type="button" data-scancel="1">Batal</button></div>` : ''}</div>`;
+    return `<div class="sess ${cur ? 'cur' : ''}">${ico}<div class="it-i"><div class="nm">${esc(s.name)}</div><div class="sk">Dibuat ${esc(fmtDate(s.createdAt))} · <span class="pill ${closed ? 'closed' : 'open'}">${lbl}</span></div></div><div class="it-a">${use}${lnk}${adm}</div>${S.confirmRotate === s.id ? `<div class="confirm"><span>Link lama sesi "${esc(s.name)}" langsung mati. Penghitung perlu link baru. Hitungan tetap aman.</span><button class="btn sm danger" type="button" data-rotyes="${esc(s.id)}">Ya, ganti</button><button class="btn sm" type="button" data-rotno="1">Batal</button></div>` : ''}${S.confirmSess === s.id ? `<div class="confirm"><span>Hapus sesi "${esc(s.name)}" beserta hitungan semua device di Google Sheet? Tidak bisa dibatalkan.</span><button class="btn sm danger" type="button" data-sdelyes="${esc(s.id)}">Ya, hapus</button><button class="btn sm" type="button" data-scancel="1">Batal</button></div>` : ''}</div>`;
   }).join('') : `<div class="empty">${MODE === 'hitung' ? 'Belum ada sesi yang berjalan. Minta admin membuat sesi.' : 'Belum ada sesi. Buat sesi di bawah, lalu bagikan link penghitung.'}</div>`;
   renderCounterLink();
 }
-function counterUrl(){
-  if (window.APP_CONFIG && window.APP_CONFIG.COUNTER_URL) return window.APP_CONFIG.COUNTER_URL;
-  const k = encodeURIComponent(S.kodeHitung);
+function counterUrl(code){
+  const k = encodeURIComponent(code || '');
+  if (window.APP_CONFIG && window.APP_CONFIG.COUNTER_URL) return window.APP_CONFIG.COUNTER_URL + '?k=' + k;
   if (window.APP_CONFIG && window.APP_CONFIG.EMBEDDED) return window.APP_CONFIG.APPS_SCRIPT_URL + '?page=hitung&k=' + k;
   return new URL('hitung.html?k=' + k, location.href).toString();
 }
 function renderCounterLink(){
   const box = $('#counterLink'); if (!box) return;
-  if (!S.kodeHitung) { box.innerHTML = '<div class="empty">Memuat…</div>'; return; }
-  box.innerHTML = `<div class="linkbox mono" id="counterUrl">${esc(counterUrl())}</div>
-    <div class="row" style="margin-top:10px">
-      <button class="btn primary" type="button" id="copyCounter">Salin link</button>
-      <button class="btn danger" type="button" id="rotateCounter">Ganti link</button>
-    </div>
-    ${S.confirmRotate ? `<div class="confirm" style="margin-top:10px"><span>Link lama langsung mati. Penghitung perlu link baru. Hitungan tetap aman.</span><button class="btn sm danger" type="button" id="rotateYes">Ya, ganti</button><button class="btn sm" type="button" id="rotateNo">Batal</button></div>` : ''}`;
+  box.innerHTML = '<div class="empty">Setiap sesi punya link penghitung sendiri. Salin dari tombol "Salin link" di daftar sesi di atas. Link hanya membuka sesinya, jadi beberapa sesi bisa berjalan bersamaan tanpa tercampur.</div>';
 }
-async function copyCounter(){
-  const url = counterUrl();
-  try { await navigator.clipboard.writeText(url); toast('Link penghitung disalin'); }
-  catch(e){ const r = document.createRange(); r.selectNodeContents($('#counterUrl')); const sel = getSelection(); sel.removeAllRanges(); sel.addRange(r); toast('Tekan Salin untuk menyalin link'); }
+async function copyCounter(sid){
+  const s = S.sessions.find(x => x.id === sid); if (!s || !s.kode) { toast('Link belum tersedia, muat ulang daftar sesi'); return; }
+  const url = counterUrl(s.kode);
+  try { await navigator.clipboard.writeText(url); toast('Link "' + s.name + '" disalin'); }
+  catch(e){ const t = document.createElement('textarea'); t.value = url; document.body.appendChild(t); t.select(); let ok = false; try { ok = document.execCommand('copy'); } catch(_){} t.remove(); toast(ok ? 'Link "' + s.name + '" disalin' : url); }
 }
-async function rotateCounter(){
-  try { const d = await API.post({action: 'rotateCounterCode'}); S.kodeHitung = d.kodeHitung; S.confirmRotate = false; renderCounterLink(); toast('Link penghitung baru dibuat'); }
-  catch(e){ S.confirmRotate = false; renderCounterLink(); toast(netFail(e) ? 'Perlu koneksi internet untuk ini' : 'Gagal: ' + e.message); }
+async function rotateCounter(sid){
+  S.confirmRotate = null;
+  const d = await sessAction({action: 'rotateCounterCode', sesi: sid}, 'Link baru dibuat. Link lama mati.');
+  if (!d) renderSesi();
 }
 function setSessions(list){
   S.sessions = (list || []).sort((a, b) => String(b.createdAt).localeCompare(String(a.createdAt)));
@@ -2062,7 +2069,7 @@ function setSessions(list){
   renderAll();
 }
 async function refreshSessions(){
-  try { const d = await API.get({action: 'init'}); S.online = true; S.gudang = d.gudang || ''; S.kodeHitung = d.kodeHitung || S.kodeHitung; setSessions(d.sessions); if (d.master && (!S.master.meta || d.master.version !== S.master.meta.version)) syncMaster(d.master); }
+  try { const d = await API.get({action: 'init'}); S.online = true; S.gudang = d.gudang || ''; setSessions(d.sessions); if (d.master && (!S.master.meta || d.master.version !== S.master.meta.version)) syncMaster(d.master); }
   catch(e){ if (netFail(e)) { S.online = false; renderSync(); } }
 }
 async function sessAction(body, okMsg){
@@ -2111,13 +2118,6 @@ function logout(expired){
 on('#loginForm', 'submit', e => { e.preventDefault(); const c = $('#codeInput').value.trim(); if (!c) { $('#loginErr').textContent = 'Isi kode akses dulu.'; return; } $('#loginErr').textContent = ''; login(c, false); });
 on('#tabs', 'click', e => { const b = e.target.closest('button[data-tab]'); if (b) setTab(b.dataset.tab); });
 document.addEventListener('click', e => { const g = e.target.closest('[data-go]'); if (g) { setTab(g.dataset.go); if (g.dataset.go === 'sesi') setTimeout(() => { const el = S.deviceName ? $('#newSess') : $('#devName'); if (el) el.focus(); }, 0); } });
-on('#counterLink', 'click', e => {
-  const id = e.target.id;
-  if (id === 'copyCounter') copyCounter();
-  else if (id === 'rotateCounter') { S.confirmRotate = true; renderCounterLink(); }
-  else if (id === 'rotateNo') { S.confirmRotate = false; renderCounterLink(); }
-  else if (id === 'rotateYes') rotateCounter();
-});
 on('#refreshBtn', 'click', () => {
   const b = $('#refreshBtn'); b.classList.remove('spin'); void b.offsetWidth; b.classList.add('spin');
   toast('Menyegarkan data…');
@@ -2245,6 +2245,10 @@ on('#sessList', 'click', e => {
   const b = e.target.closest('button'); if (!b) return;
   if (b.dataset.use) { selectSession(b.dataset.use); toast('Sesi dipakai'); }
   else if (b.dataset.toggle) { const s = S.sessions.find(x => x.id === b.dataset.toggle); if (s) sessAction({action: 'setSessionStatus', sesi: s.id, status: s.status === 'closed' ? 'open' : 'closed'}, s.status === 'closed' ? 'Sesi dibuka lagi' : 'Sesi ditutup').then(() => pushAll()); }
+  else if (b.dataset.copylink) copyCounter(b.dataset.copylink);
+  else if (b.dataset.rotlink) { S.confirmRotate = b.dataset.rotlink; renderSesi(); }
+  else if (b.dataset.rotno) { S.confirmRotate = null; renderSesi(); }
+  else if (b.dataset.rotyes) rotateCounter(b.dataset.rotyes);
   else if (b.dataset.sdel) { S.confirmSess = b.dataset.sdel; renderSesi(); }
   else if (b.dataset.scancel) { S.confirmSess = null; renderSesi(); }
   else if (b.dataset.sdelyes) {

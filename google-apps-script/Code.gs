@@ -10,9 +10,9 @@
  * POST body JSON (Content-Type text/plain) {action, code, ...}
  *
  * Tab:
- *   Config      key/value: kode_akses (admin), kode_hitung (link penghitung), nama_gudang, master_*
+ *   Config      key/value: kode_akses (admin), nama_gudang, master_*
  *   Master_DMS  stok terakhir dari DMS (sku, barcode, barcode_karton, nama, isi_karton, stok_karton, stok_lusin, stok_pcs)
- *   Sesi        daftar sesi opname
+ *   Sesi        daftar sesi opname; kolom kode = kode link penghitung khusus sesi itu
  *   Hitung      satu baris per sesi + device + SKU + kondisi, nilai terakhir (karton, lusin, pcs).
  *               kondisi kosong = Good Stock, 'rusak' = Bad Stock. Di sisi web, Bad Stock ditulis sebagai kunci "SKU#B".
  *   Log         riwayat setiap scan/koreksi per device (audit)
@@ -21,7 +21,7 @@
 const SH = { CONFIG: 'Config', MASTER: 'Master_DMS', SESI: 'Sesi', HITUNG: 'Hitung', LOG: 'Log' };
 const HEAD = {
   Master_DMS: ['sku', 'barcode', 'barcode_karton', 'nama', 'isi_karton', 'stok_karton', 'stok_lusin', 'stok_pcs'],
-  Sesi: ['sesi_id', 'nama', 'status', 'dibuat', 'dibuat_oleh'],
+  Sesi: ['sesi_id', 'nama', 'status', 'dibuat', 'dibuat_oleh', 'kode'],
   Hitung: ['sesi_id', 'device_id', 'device_nama', 'sku', 'karton', 'lusin', 'pcs', 'updated_at', 'kondisi'],
   Log: ['log_id', 'waktu', 'sesi_id', 'device_id', 'device_nama', 'sku', 'karton', 'lusin', 'pcs', 'aksi', 'kondisi'],
 };
@@ -57,23 +57,32 @@ function handle_(p) {
   try {
     const ss = SpreadsheetApp.getActiveSpreadsheet();
     ensureSheets_(ss);
-    let cfg = readConfig_(ss);
-    if (!String(cfg.kode_hitung || '').trim()) { setConfig_(ss, 'kode_hitung', newCounterCode_()); cfg = readConfig_(ss); }
+    const cfg = readConfig_(ss);
     const code = String(p.code || '').trim();
     if (!code) return jsonOut_({ error: 'missing_code' });
-    const admin = String(cfg.kode_akses || '').trim(), counter = String(cfg.kode_hitung || '').trim();
+    const admin = String(cfg.kode_akses || '').trim();
     if (!admin) return jsonOut_({ error: 'no_access_code', message: 'Isi kode_akses di tab Config.' });
-    // kode_akses = admin (lihat semua); kode_hitung = penghitung (tanpa angka stok DMS, tanpa rekap).
-    const role = code === admin ? 'admin' : (code === counter ? 'hitung' : null);
+    // kode_akses = admin (lihat semua). Kode penghitung = satu per sesi (Sesi!kode): hanya bisa
+    // membuka sesi itu saja, tanpa angka stok DMS dan tanpa rekap.
+    let role = null, scope = '';
+    ensureSessionCodes_(ss);
+    if (code === admin) role = 'admin';
+    else {
+      const own = readSessions_(ss, true).find(x => x.kode && x.kode === code);
+      if (own) { role = 'hitung'; scope = own.id; }
+    }
     if (!role) return jsonOut_({ error: 'invalid_code' });
     if (role !== 'admin' && ADMIN_ONLY.indexOf(p.action) >= 0) return jsonOut_({ error: 'forbidden', message: 'Hanya untuk admin.' });
+    // Penghitung tidak boleh menyentuh sesi lain, apa pun yang dikirim.
+    if (role === 'hitung' && (p.action === 'myRows' || p.action === 'push') && String(p.sesi || '') !== scope)
+      return jsonOut_({ error: 'wrong_session', message: 'Link ini bukan untuk sesi tersebut.' });
 
     switch (p.action) {
       case 'init': {
-        const sessions = readSessions_(ss);
+        const all = readSessions_(ss, role === 'admin');
         const out = { ok: true, role: role, gudang: cfg.nama_gudang || '', master: masterMeta_(cfg), serverTime: new Date().toISOString(),
-          sessions: role === 'admin' ? sessions : sessions.filter(s => s.status !== 'closed') };
-        if (role === 'admin') out.kodeHitung = counter;
+          sessions: role === 'admin' ? all : all.filter(s => s.id === scope) };
+        if (role === 'hitung') out.scopedSesi = scope;
         return jsonOut_(out);
       }
       case 'master': {
@@ -91,9 +100,7 @@ function handle_(p) {
       case 'setSessionStatus': return locked_(() => setSessionStatus_(ss, p));
       case 'deleteSession': return locked_(() => deleteSession_(ss, p));
       case 'importMaster': return locked_(() => importMaster_(ss, p));
-      case 'rotateCounterCode': return locked_(() => {
-        const c = newCounterCode_(); setConfig_(ss, 'kode_hitung', c); return jsonOut_({ ok: true, kodeHitung: c });
-      });
+      case 'rotateCounterCode': return locked_(() => rotateSessionCode_(ss, p));
       default: return jsonOut_({ error: 'unknown_action' });
     }
   } catch (err) {
@@ -128,6 +135,8 @@ function ensureSheets_(ss) {
       if (name === SH.MASTER) sh.getRange('A:C').setNumberFormat('@');
       if (name === SH.HITUNG) sh.getRange('A:D').setNumberFormat('@');
       if (name === SH.LOG) sh.getRange('A:F').setNumberFormat('@');
+    } else if (name === SH.SESI) {
+      if (String(sh.getRange(1, 6).getValue() || '') === '') sh.getRange(1, 6).setValue('kode').setFontWeight('bold');
     } else if (name === SH.HITUNG || name === SH.LOG) {
       // Sheet lama: tambahkan kolom kondisi di header kalau belum ada.
       const h = HEAD[name];
@@ -153,7 +162,30 @@ function setConfig_(ss, key, value) {
 }
 
 function newCounterCode_() {
-  return 'HITUNG-' + Utilities.getUuid().replace(/-/g, '').slice(0, 8).toUpperCase();
+  return 'H-' + Utilities.getUuid().replace(/-/g, '').slice(0, 12).toUpperCase();
+}
+
+// Sesi lama (dibuat sebelum ada kolom kode) diberi kode sendiri-sendiri.
+function ensureSessionCodes_(ss) {
+  const sh = ss.getSheetByName(SH.SESI);
+  const n = sh.getLastRow();
+  if (n < 2) return;
+  const rng = sh.getRange(2, 1, n - 1, 6), v = rng.getValues();
+  let dirty = false;
+  v.forEach(r => { if (r[0] && !String(r[5] || '').trim()) { r[5] = newCounterCode_(); dirty = true; } });
+  if (dirty) {
+    const lock = LockService.getScriptLock();
+    if (!lock.tryLock(25000)) return;
+    try { sh.getRange(2, 6, v.length, 1).setValues(v.map(r => [r[5]])); } finally { lock.releaseLock(); }
+  }
+}
+
+function rotateSessionCode_(ss, p) {
+  const sh = ss.getSheetByName(SH.SESI);
+  const row = findSessionRow_(sh, String(p.sesi || ''));
+  if (row < 0) return jsonOut_({ error: 'not_found' });
+  sh.getRange(row, 6).setValue(newCounterCode_());
+  return jsonOut_({ ok: true, sessions: readSessions_(ss, true) });
 }
 
 // Kolom yang boleh dilihat penghitung. Daftar putih, bukan daftar hitam: kolom stok
@@ -185,12 +217,16 @@ function masterMeta_(cfg) {
 
 /* ---------------- sessions ---------------- */
 
-function readSessions_(ss) {
+function readSessions_(ss, withCode) {
   const v = ss.getSheetByName(SH.SESI).getDataRange().getValues();
-  return v.slice(1).filter(r => r[0]).map(r => ({
-    id: String(r[0]), name: String(r[1]), status: String(r[2] || 'open'),
-    createdAt: r[3] instanceof Date ? r[3].toISOString() : String(r[3] || ''),
-  }));
+  return v.slice(1).filter(r => r[0]).map(r => {
+    const o = {
+      id: String(r[0]), name: String(r[1]), status: String(r[2] || 'open'),
+      createdAt: r[3] instanceof Date ? r[3].toISOString() : String(r[3] || ''),
+    };
+    if (withCode) o.kode = String(r[5] || '');
+    return o;
+  });
 }
 
 function findSessionRow_(sh, id) {
@@ -203,8 +239,8 @@ function createSession_(ss, p) {
   const name = String(p.nama || '').trim().slice(0, 80);
   if (!name) return jsonOut_({ error: 'bad_request', message: 'Nama sesi kosong.' });
   const id = 's-' + Utilities.getUuid().replace(/-/g, '').slice(0, 10);
-  ss.getSheetByName(SH.SESI).appendRow([id, name, 'open', new Date().toISOString(), String(p.device_nama || '')]);
-  return jsonOut_({ ok: true, id: id, sessions: readSessions_(ss) });
+  ss.getSheetByName(SH.SESI).appendRow([id, name, 'open', new Date().toISOString(), String(p.device_nama || ''), newCounterCode_()]);
+  return jsonOut_({ ok: true, id: id, sessions: readSessions_(ss, true) });
 }
 
 function setSessionStatus_(ss, p) {
@@ -212,7 +248,7 @@ function setSessionStatus_(ss, p) {
   const row = findSessionRow_(sh, String(p.sesi || ''));
   if (row < 0) return jsonOut_({ error: 'not_found' });
   sh.getRange(row, 3).setValue(p.status === 'closed' ? 'closed' : 'open');
-  return jsonOut_({ ok: true, sessions: readSessions_(ss) });
+  return jsonOut_({ ok: true, sessions: readSessions_(ss, true) });
 }
 
 function deleteSession_(ss, p) {
@@ -227,7 +263,7 @@ function deleteSession_(ss, p) {
     h.getRange(1, 1, v.length, v[0].length).clearContent();
     h.getRange(1, 1, keep.length, keep[0].length).setValues(keep);
   }
-  return jsonOut_({ ok: true, sessions: readSessions_(ss) });
+  return jsonOut_({ ok: true, sessions: readSessions_(ss, true) });
 }
 
 /* ---------------- counts ---------------- */
